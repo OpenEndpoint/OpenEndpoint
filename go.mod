@@ -11,6 +11,8 @@ require (
 	github.com/aws/smithy-go v1.19.0
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/google/uuid v1.5.0
+	github.com/hashicorp/memberlist v0.5.0
+	github.com/klauspost/reedsolomon v1.12.0
 	github.com/prometheus/client_golang v1.17.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2

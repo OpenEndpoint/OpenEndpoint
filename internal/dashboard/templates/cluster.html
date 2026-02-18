@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cluster - OpenEndpoint</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .cluster-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .node-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+        .node-card.offline {
+            border-left-color: #dc3545;
+        }
+        .node-card.degraded {
+            border-left-color: #ffc107;
+        }
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .node-name {
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        .node-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+        }
+        .status-online {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-offline {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-degraded {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .node-info {
+            margin: 10px 0;
+        }
+        .node-info span {
+            display: block;
+            padding: 4px 0;
+            color: #666;
+        }
+        .ring-visualization {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .ring-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>OpenEndpoint</h1>
+            <p class="tagline">Cluster Management</p>
+        </header>
+
+        <main>
+            <div class="actions">
+                <a href="/" class="btn">Dashboard</a>
+                <a href="/metrics" class="btn">Metrics</a>
+                <button onclick="refreshCluster()" class="btn refresh-btn">Refresh</button>
+            </div>
+
+            <div id="loading" class="loading">Loading cluster status...</div>
+            <div id="error" style="display: none;"></div>
+
+            <!-- Cluster Overview -->
+            <div class="ring-visualization" id="cluster-overview" style="display: none;">
+                <h2>Cluster Overview</h2>
+                <div class="ring-stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-nodes">-</div>
+                        <div class="stat-label">Total Nodes</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="online-nodes">-</div>
+                        <div class="stat-label">Online</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="replication-factor">-</div>
+                        <div class="stat-label">Replication Factor</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-storage">-</div>
+                        <div class="stat-label">Total Storage</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Nodes Grid -->
+            <h2 style="margin-top: 30px;">Nodes</h2>
+            <div class="cluster-grid" id="nodes-grid" style="display: none;">
+                <!-- Node cards will be inserted here -->
+            </div>
+
+            <!-- Hash Ring Distribution -->
+            <div class="ring-visualization" id="ring-distribution" style="display: none;">
+                <h2>Hash Ring Distribution</h2>
+                <div class="ring-stats" id="ring-stats">
+                    <!-- Ring stats will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Recent Events -->
+            <div class="ring-visualization" id="recent-events" style="display: none;">
+                <h2>Recent Events</h2>
+                <div id="events-list">
+                    <!-- Events will be inserted here -->
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2026 OpenEndpoint. Apache License 2.0</p>
+        </footer>
+    </div>
+
+    <script>
+        async function fetchClusterStatus() {
+            try {
+                const response = await fetch('/_mgmt/cluster');
+                if (!response.ok) throw new Error('Failed to fetch cluster status');
+                return await response.json();
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === null || bytes === undefined) return '-';
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function refreshCluster() {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const clusterOverview = document.getElementById('cluster-overview');
+            const nodesGrid = document.getElementById('nodes-grid');
+
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            clusterOverview.style.display = 'none';
+            nodesGrid.style.display = 'none';
+
+            try {
+                const data = await fetchClusterStatus();
+
+                // Update cluster overview
+                document.getElementById('total-nodes').textContent = data.nodes?.length || 0;
+                document.getElementById('online-nodes').textContent = data.nodes?.filter(n => n.status === 'online').length || 0;
+                document.getElementById('replication-factor').textContent = data.replicationFactor || '-';
+                document.getElementById('total-storage').textContent = formatBytes(data.totalStorage);
+
+                // Update nodes grid
+                const nodesGrid = document.getElementById('nodes-grid');
+                nodesGrid.innerHTML = '';
+
+                if (data.nodes && data.nodes.length > 0) {
+                    data.nodes.forEach(node => {
+                        const card = document.createElement('div');
+                        card.className = `node-card ${node.status}`;
+                        card.innerHTML = `
+                            <div class="node-header">
+                                <span class="node-name">${node.name}</span>
+                                <span class="node-status status-${node.status}">${node.status}</span>
+                            </div>
+                            <div class="node-info">
+                                <span><strong>ID:</strong> ${node.id}</span>
+                                <span><strong>Address:</strong> ${node.address}:${node.port}</span>
+                                <span><strong>Uptime:</strong> ${node.uptime || '-'}</span>
+                                <span><strong>Storage:</strong> ${formatBytes(node.storageUsed)} / ${formatBytes(node.storageCapacity)}</span>
+                                <span><strong>Region:</strong> ${node.region || 'default'}</span>
+                                <span><strong>Zone:</strong> ${node.zone || 'default'}</span>
+                            </div>
+                        `;
+                        nodesGrid.appendChild(card);
+                    });
+                }
+
+                loading.style.display = 'none';
+                clusterOverview.style.display = 'block';
+                nodesGrid.style.display = 'grid';
+
+                // Show ring distribution if available
+                if (data.ringDistribution) {
+                    const ringDiv = document.getElementById('ring-distribution');
+                    const ringStats = document.getElementById('ring-stats');
+                    ringStats.innerHTML = '';
+
+                    for (const [node, vnodes] of Object.entries(data.ringDistribution)) {
+                        const stat = document.createElement('div');
+                        stat.className = 'stat-card';
+                        stat.innerHTML = `
+                            <div class="stat-value">${vnodes}</div>
+                            <div class="stat-label">${node}</div>
+                        `;
+                        ringStats.appendChild(stat);
+                    }
+                    ringDiv.style.display = 'block';
+                }
+
+            } catch (err) {
+                loading.style.display = 'none';
+                error.textContent = 'Error loading cluster: ' + err.message;
+                error.style.display = 'block';
+            }
+        }
+
+        // Auto-refresh every 30 seconds
+        refreshCluster();
+        setInterval(refreshCluster, 30000);
+    </script>
+</body>
+</html>

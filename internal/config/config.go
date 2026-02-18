@@ -8,10 +8,17 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Storage  StorageConfig  `mapstructure:"storage"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Cluster  ClusterConfig  `mapstructure:"cluster"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Storage   StorageConfig   `mapstructure:"storage"`
+	Auth      AuthConfig     `mapstructure:"auth"`
+	Cluster   ClusterConfig  `mapstructure:"cluster"`
+	Federation FederationConfig `mapstructure:"federation"`
+	CDN      CDNConfig      `mapstructure:"cdn"`
+	Tenant   TenantConfig   `mapstructure:"tenant"`
+	Tiering  TieringConfig  `mapstructure:"tiering"`
+	Dedup    DedupConfig    `mapstructure:"deduplication"`
+	Analytics AnalyticsConfig `mapstructure:"analytics"`
+	Backup   BackupConfig   `mapstructure:"backup"`
 	Metrics  MetricsConfig  `mapstructure:"metrics"`
 	TLS      TLSConfig      `mapstructure:"tls"`
 }
@@ -68,6 +75,75 @@ type LoggingConfig struct {
 	MaxBackups int    `mapstructure:"max_backups"`  // number of backup files
 	MaxAge     int    `mapstructure:"max_age"`      // days to keep backups
 	Compress   bool   `mapstructure:"compress"`    // compress rotated logs
+}
+
+type FederationConfig struct {
+	Enabled     bool     `mapstructure:"enabled"`
+	RegionCode  string   `mapstructure:"region_code"`
+	RegionName  string   `mapstructure:"region_name"`
+	Endpoint    string   `mapstructure:"endpoint"`
+	Country     string   `mapstructure:"country"`
+	Continent   string   `mapstructure:"continent"`
+	Peers       []string `mapstructure:"peers"`
+	SyncInterval int     `mapstructure:"sync_interval"` // seconds
+}
+
+type CDNConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	Provider   string `mapstructure:"provider"` // cloudflare, fastly, akamai, cloudfront
+	APIKey     string `mapstructure:"api_key"`
+	ZoneID     string `mapstructure:"zone_id"`
+	Domain     string `mapstructure:"domain"`
+	CacheTTL   int    `mapstructure:"cache_ttl"` // seconds
+}
+
+type TenantConfig struct {
+	Enabled        bool  `mapstructure:"enabled"`
+	DefaultQuota   QuotaConfig `mapstructure:"default_quota"`
+}
+
+type QuotaConfig struct {
+	StorageBytes int64 `mapstructure:"storage_bytes"`
+	ObjectCount  int64 `mapstructure:"object_count"`
+	BucketCount  int   `mapstructure:"bucket_count"`
+	APIRequests  int64 `mapstructure:"api_requests"`
+}
+
+type TieringConfig struct {
+	Enabled bool          `mapstructure:"enabled"`
+	Tiers   []TierConfig `mapstructure:"tiers"`
+}
+
+type TierConfig struct {
+	Name       string `mapstructure:"name"`
+	MinAgeDays int   `mapstructure:"min_age_days"`
+	MaxSizeGB  int64 `mapstructure:"max_size_gb"`
+}
+
+type DedupConfig struct {
+	Enabled      bool  `mapstructure:"enabled"`
+	MinSizeBytes int64 `mapstructure:"min_size_bytes"`
+}
+
+type AnalyticsConfig struct {
+	Enabled        bool `mapstructure:"enabled"`
+	ReportInterval int  `mapstructure:"report_interval"` // seconds
+	RetentionDays  int  `mapstructure:"retention_days"`
+}
+
+type BackupConfig struct {
+	Enabled  bool            `mapstructure:"enabled"`
+	Targets  []BackupTarget `mapstructure:"targets"`
+}
+
+type BackupTarget struct {
+	Name      string `mapstructure:"name"`
+	Type      string `mapstructure:"type"` // s3, gcs, azure, nfs, local
+	Endpoint  string `mapstructure:"endpoint"`
+	Bucket    string `mapstructure:"bucket"`
+	Prefix    string `mapstructure:"prefix"`
+	AccessKey string `mapstructure:"access_key"`
+	SecretKey string `mapstructure:"secret_key"`
 }
 
 func Load(path string) (*Config, error) {

@@ -23,9 +23,80 @@ auth:
 cluster:
   enabled: false
   node_id: ""
+  node_name: ""
   bind_addr: "0.0.0.0"
+  bind_port: 9001
   peer_ports: "9001"
-  replication_factor: 1
+  join_peers: []  # List of seed nodes to join
+  replication_factor: 3
+  erasure_coding:
+    data_shards: 4
+    parity_shards: 2
+  rebalancing:
+    enabled: true
+    threshold_percent: 10
+    max_concurrent_moves: 5
+
+federation:
+  enabled: false
+  region_code: "us-east-1"
+  region_name: "US East"
+  endpoint: ""
+  country: "US"
+  continent: "NA"
+  peers: []  # List of peer regions
+  sync_interval: 60  # seconds
+
+cdn:
+  enabled: false
+  provider: "cloudflare"  # cloudflare, fastly, akamai, cloudfront
+  api_key: ""
+  zone_id: ""
+  domain: ""
+  cache_ttl: 3600  # seconds
+
+tenant:
+  enabled: false
+  default_quota:
+    storage_bytes: 10737418240  # 10GB
+    object_count: 10000
+    bucket_count: 10
+    api_requests: 1000000  # per day
+
+tiering:
+  enabled: false
+  tiers:
+    - name: "hot"
+      min_age_days: 0
+      max_size_gb: 100
+    - name: "warm"
+      min_age_days: 30
+      max_size_gb: 500
+    - name: "cold"
+      min_age_days: 90
+      max_size_gb: 2000
+    - name: "glacier"
+      min_age_days: 180
+
+deduplication:
+  enabled: false
+  min_size_bytes: 4096  # Only dedup files > 4KB
+
+analytics:
+  enabled: true
+  report_interval: 3600  # seconds
+  retention_days: 30
+
+backup:
+  targets: []
+  # Example targets:
+  # - name: "backup-s3"
+  #   type: "s3"
+  #   endpoint: "https://s3.amazonaws.com"
+  #   bucket: "my-backup-bucket"
+  #   prefix: "openendpoint"
+  #   access_key: ""
+  #   secret_key: ""
 
 metrics:
   enabled: true
