@@ -1,0 +1,94 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+openep
+openep.exe
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swo~
+.project
+.settings/
+.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Config (sensitive)
+config.yaml
+config.local.yaml
+*.local.yaml
+
+# Data directories
+/data/
+/var/lib/openendpoint/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+nohup.out
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Temp files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Build artifacts
+dist/
+build/
+release/
+
+# Terraform (if used)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.*
+
+# Helm (if used)
+helm/charts/*/Chart.lock
+helm/charts/*/charts/
+
+# Misc
+*.sig
+*.pem
+keys/
+secrets/
+nul

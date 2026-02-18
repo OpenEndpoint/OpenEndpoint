@@ -1,0 +1,48 @@
+# OpenEndpoint Configuration
+# Copy this file to config.yaml and customize
+
+server:
+  host: "0.0.0.0"
+  port: 9000
+  read_timeout: 30
+  write_timeout: 30
+  idle_timeout: 60
+
+storage:
+  data_dir: "/data"
+  max_object_size: 5368709120  # 5GB
+  max_buckets: 100
+  enable_compression: false
+  storage_backend: "flatfile"
+
+auth:
+  secret_key: "minioadmin"
+  access_key: "minioadmin"
+  session_expiry: 24
+
+cluster:
+  enabled: false
+  node_id: ""
+  bind_addr: "0.0.0.0"
+  peer_ports: "9001"
+  replication_factor: 1
+
+metrics:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+
+tls:
+  enabled: false
+  cert_file: ""
+  key_file: ""
+
+logging:
+  level: "info"      # debug, info, warn, error
+  format: "json"     # json, text
+  output: "stdout"   # stdout, file
+  file: "/var/log/openendpoint/server.log"
+  max_size: 100      # max size in MB before rotation
+  max_backups: 7    # number of backup files to keep
+  max_age: 30       # days to keep backup files
+  compress: true    # compress rotated logs

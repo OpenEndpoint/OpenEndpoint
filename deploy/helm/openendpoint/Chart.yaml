@@ -1,0 +1,14 @@
+apiVersion: v2
+name: openendpoint
+description: OpenEndpoint - Developer-first object storage
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - storage
+  - s3
+  - object-storage
+  - minio
+maintainers:
+  - name: OpenEndpoint Team
+    email: team@openendpoint.io

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metrics - OpenEndpoint</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .metric-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .metric-card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+            margin: 10px 0;
+        }
+        .metric-label {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .metric-row:last-child {
+            border-bottom: none;
+        }
+        .refresh-btn {
+            background: #28a745;
+            margin-bottom: 20px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .error {
+            color: #dc3545;
+            padding: 20px;
+            background: #f8d7da;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>OpenEndpoint</h1>
+            <p class="tagline">Metrics Dashboard</p>
+        </header>
+
+        <main>
+            <div class="actions">
+                <a href="/" class="btn">Dashboard</a>
+                <a href="/metrics" class="btn">Raw Metrics</a>
+                <button onclick="refreshMetrics()" class="btn refresh-btn">Refresh</button>
+            </div>
+
+            <div id="loading" class="loading">Loading metrics...</div>
+            <div id="error" style="display: none;"></div>
+
+            <div class="metrics-grid" id="metrics-grid" style="display: none;">
+                <div class="metric-card">
+                    <h3>Storage</h3>
+                    <div class="metric-value" id="storage-bytes">-</div>
+                    <div class="metric-label">Total Bytes Stored</div>
+                    <div class="metric-row">
+                        <span>Objects</span>
+                        <span id="storage-objects">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Buckets</span>
+                        <span id="storage-buckets">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Disk Usage</span>
+                        <span id="disk-usage">-</span>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>Requests</h3>
+                    <div class="metric-value" id="active-requests">-</div>
+                    <div class="metric-label">Active Requests</div>
+                    <div class="metric-row">
+                        <span>Total Operations</span>
+                        <span id="total-ops">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Failed Requests</span>
+                        <span id="failed-requests">-</span>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>S3 Operations</h3>
+                    <div class="metric-row">
+                        <span>GetObject</span>
+                        <span id="ops-get">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>PutObject</span>
+                        <span id="ops-put">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>DeleteObject</span>
+                        <span id="ops-delete">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>ListObjects</span>
+                        <span id="ops-list">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>HeadObject</span>
+                        <span id="ops-head">-</span>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>Performance</h3>
+                    <div class="metric-row">
+                        <span>Avg Get Duration</span>
+                        <span id="dur-get">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Avg Put Duration</span>
+                        <span id="dur-put">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Avg Delete Duration</span>
+                        <span id="dur-delete">-</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Avg List Duration</span>
+                        <span id="dur-list">-</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 OpenEndpoint. Apache License 2.0</p>
+        </footer>
+    </div>
+
+    <script>
+        async function fetchMetrics() {
+            try {
+                const response = await fetch('/metrics');
+                if (!response.ok) throw new Error('Failed to fetch metrics');
+                return await response.text();
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        function parseMetric(text, name) {
+            const lines = text.split('\n');
+            for (const line of lines) {
+                if (line.startsWith(name)) {
+                    const parts = line.split(' ');
+                    if (parts.length >= 2) {
+                        return parseFloat(parts[1]);
+                    }
+                }
+            }
+            return null;
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === null) return '-';
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatDuration(seconds) {
+            if (seconds === null) return '-';
+            if (seconds < 0.001) return (seconds * 1000000).toFixed(0) + ' µs';
+            if (seconds < 1) return (seconds * 1000).toFixed(2) + ' ms';
+            return seconds.toFixed(2) + ' s';
+        }
+
+        async function refreshMetrics() {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const grid = document.getElementById('metrics-grid');
+
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            grid.style.display = 'none';
+
+            try {
+                const text = await fetchMetrics();
+
+                // Storage metrics
+                const storageBytes = parseMetric(text, 'openendpoint_storage_bytes_stored');
+                const storageObjects = parseMetric(text, 'openendpoint_storage_objects_total');
+                const storageBuckets = parseMetric(text, 'openendpoint_storage_buckets_total');
+                const diskUsage = parseMetric(text, 'openendpoint_storage_disk_usage_percent');
+
+                document.getElementById('storage-bytes').textContent = formatBytes(storageBytes);
+                document.getElementById('storage-objects').textContent = storageObjects !== null ? Math.floor(storageObjects).toLocaleString() : '-';
+                document.getElementById('storage-buckets').textContent = storageBuckets !== null ? Math.floor(storageBuckets).toLocaleString() : '-';
+                document.getElementById('disk-usage').textContent = diskUsage !== null ? diskUsage.toFixed(1) + '%' : '-';
+
+                // Request metrics
+                const activeRequests = parseMetric(text, 'openendpoint_requests_active');
+                const totalOps = parseMetric(text, 'openendpoint_operations_total');
+                const failedRequests = parseMetric(text, 'openendpoint_requests_failed_total');
+
+                document.getElementById('active-requests').textContent = activeRequests !== null ? Math.floor(activeRequests).toLocaleString() : '-';
+                document.getElementById('total-ops').textContent = totalOps !== null ? Math.floor(totalOps).toLocaleString() : '-';
+                document.getElementById('failed-requests').textContent = failedRequests !== null ? Math.floor(failedRequests).toLocaleString() : '-';
+
+                // S3 operations - get counters
+                const opsGet = parseMetric(text, 'openendpoint_s3_requests_total{operation="GetObject"}') ||
+                              parseMetric(text, 'openendpoint_s3_requests_total{operation="get"}');
+                const opsPut = parseMetric(text, 'openendpoint_s3_requests_total{operation="PutObject"}') ||
+                              parseMetric(text, 'openendpoint_s3_requests_total{operation="put"}');
+                const opsDelete = parseMetric(text, 'openendpoint_s3_requests_total{operation="DeleteObject"}') ||
+                                parseMetric(text, 'openendpoint_s3_requests_total{operation="delete"}');
+                const opsList = parseMetric(text, 'openendpoint_s3_requests_total{operation="ListObjects"}') ||
+                              parseMetric(text, 'openendpoint_s3_requests_total{operation="list"}');
+                const opsHead = parseMetric(text, 'openendpoint_s3_requests_total{operation="HeadObject"}') ||
+                              parseMetric(text, 'openendpoint_s3_requests_total{operation="head"}');
+
+                document.getElementById('ops-get').textContent = opsGet !== null ? Math.floor(opsGet).toLocaleString() : '0';
+                document.getElementById('ops-put').textContent = opsPut !== null ? Math.floor(opsPut).toLocaleString() : '0';
+                document.getElementById('ops-delete').textContent = opsDelete !== null ? Math.floor(opsDelete).toLocaleString() : '0';
+                document.getElementById('ops-list').textContent = opsList !== null ? Math.floor(opsList).toLocaleString() : '0';
+                document.getElementById('ops-head').textContent = opsHead !== null ? Math.floor(opsHead).toLocaleString() : '0';
+
+                // Durations (histogram sums)
+                const durGet = parseMetric(text, 'openendpoint_operation_duration_seconds_sum{operation="GetObject"}');
+                const durPut = parseMetric(text, 'openendpoint_operation_duration_seconds_sum{operation="PutObject"}');
+                const durDelete = parseMetric(text, 'openendpoint_operation_duration_seconds_sum{operation="DeleteObject"}');
+                const durList = parseMetric(text, 'openendpoint_operation_duration_seconds_sum{operation="ListObjects"}');
+
+                // Get counts to calculate averages
+                const countGet = parseMetric(text, 'openendpoint_operation_duration_seconds_count{operation="GetObject"}') || 1;
+                const countPut = parseMetric(text, 'openendpoint_operation_duration_seconds_count{operation="PutObject"}') || 1;
+                const countDelete = parseMetric(text, 'openendpoint_operation_duration_seconds_count{operation="DeleteObject"}') || 1;
+                const countList = parseMetric(text, 'openendpoint_operation_duration_seconds_count{operation="ListObjects"}') || 1;
+
+                document.getElementById('dur-get').textContent = formatDuration(durGet / countGet);
+                document.getElementById('dur-put').textContent = formatDuration(durPut / countPut);
+                document.getElementById('dur-delete').textContent = formatDuration(durDelete / countDelete);
+                document.getElementById('dur-list').textContent = formatDuration(durList / countList);
+
+                loading.style.display = 'none';
+                grid.style.display = 'grid';
+            } catch (err) {
+                loading.style.display = 'none';
+                error.textContent = 'Error loading metrics: ' + err.message;
+                error.style.display = 'block';
+            }
+        }
+
+        // Auto-refresh every 30 seconds
+        refreshMetrics();
+        setInterval(refreshMetrics, 30000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>OpenEndpoint</h1>
+            <p class="tagline">Developer-First Object Storage</p>
+        </header>
+
+        <main>
+            <section class="status-card">
+                <h2>System Status</h2>
+                <div class="status-item">
+                    <span class="label">Version:</span>
+                    <span class="value">{{.Version}}</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Status:</span>
+                    <span class="value status-ok">Running</span>
+                </div>
+            </section>
+
+            <section class="quick-actions">
+                <h2>Quick Actions</h2>
+                <div class="actions">
+                    <a href="/s3/" class="btn">S3 API</a>
+                    <a href="/_mgmt/" class="btn">Management API</a>
+                    <a href="/metrics" class="btn">Metrics</a>
+                </div>
+            </section>
+
+            <section class="endpoints">
+                <h2>Endpoints</h2>
+                <ul>
+                    <li><strong>S3 API:</strong> http://localhost:9000/s3/</li>
+                    <li><strong>Management:</strong> http://localhost:9000/_mgmt/</li>
+                    <li><strong>Health:</strong> http://localhost:9000/health</li>
+                    <li><strong>Metrics:</strong> http://localhost:9000/metrics</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 OpenEndpoint. Apache License 2.0</p>
+        </footer>
+    </div>
+</body>
+</html>

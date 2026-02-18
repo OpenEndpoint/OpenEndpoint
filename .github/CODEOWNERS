@@ -1,0 +1,10 @@
+# Code Owners
+
+# Default owner for everything
+* @ersinkoc
+
+# Specific owners for key directories
+/cmd/          @ersinkoc
+/internal/api/ @ersinkoc
+/internal/engine/ @ersinkoc
+/deploy/       @ersinkoc
