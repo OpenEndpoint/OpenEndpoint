@@ -4,53 +4,470 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        border: "hsl(var(--border))",
+                        input: "hsl(var(--input))",
+                        ring: "hsl(var(--ring))",
+                        background: "hsl(var(--background))",
+                        foreground: "hsl(var(--foreground))",
+                        primary: {
+                            DEFAULT: "hsl(var(--primary))",
+                            foreground: "hsl(var(--primary-foreground))",
+                        },
+                        secondary: {
+                            DEFAULT: "hsl(var(--secondary))",
+                            foreground: "hsl(var(--secondary-foreground))",
+                        },
+                        destructive: {
+                            DEFAULT: "hsl(var(--destructive))",
+                            foreground: "hsl(var(--destructive-foreground))",
+                        },
+                        muted: {
+                            DEFAULT: "hsl(var(--muted))",
+                            foreground: "hsl(var(--muted-foreground))",
+                        },
+                        accent: {
+                            DEFAULT: "hsl(var(--accent))",
+                            foreground: "hsl(var(--accent-foreground))",
+                        },
+                        card: {
+                            DEFAULT: "hsl(var(--card))",
+                            foreground: "hsl(var(--card-foreground))",
+                        },
+                    },
+                    borderRadius: {
+                        lg: "var(--radius)",
+                        md: "calc(var(--radius) - 2px)",
+                        sm: "calc(var(--radius) - 4px)",
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+        :root {
+            --background: 222 47% 11%;
+            --foreground: 210 40% 98%;
+            --card: 222 47% 14%;
+            --card-foreground: 210 40% 98%;
+            --primary: 239 84% 67%;
+            --primary-foreground: 210 40% 98%;
+            --secondary: 263 70% 50%;
+            --secondary-foreground: 210 40% 98%;
+            --muted: 217 33% 17%;
+            --muted-foreground: 215 20% 65%;
+            --accent: 263 70% 50%;
+            --accent-foreground: 210 40% 98%;
+            --destructive: 0 63% 31%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 217 33% 25%;
+            --input: 217 33% 17%;
+            --ring: 239 84% 67%;
+            --radius: 0.75rem;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, hsl(222, 47%, 11%) 0%, hsl(263, 70%, 10%) 50%, hsl(270, 50%, 8%) 100%);
+            min-height: 100vh;
+            color: hsl(var(--foreground));
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: hsl(var(--muted)); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: hsl(var(--primary)); border-radius: 4px; }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px hsl(var(--primary) / 0.3); }
+            50% { box-shadow: 0 0 40px hsl(var(--primary) / 0.5); }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+
+        /* Card styles */
+        .card {
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: var(--radius);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px -12px hsl(var(--primary) / 0.3);
+            border-color: hsl(var(--primary) / 0.5);
+        }
+
+        /* Button styles */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border-radius: var(--radius);
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+        }
+
+        .btn-primary:hover {
+            background: hsl(var(--primary) / 0.9);
+            transform: scale(1.02);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid hsl(var(--border));
+            color: hsl(var(--foreground));
+        }
+
+        .btn-outline:hover {
+            background: hsl(var(--accent) / 0.1);
+            border-color: hsl(var(--primary));
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: hsl(142 71% 45% / 0.15);
+            color: hsl(142 71% 65%);
+            border: 1px solid hsl(142 71% 45% / 0.3);
+        }
+
+        .badge-success::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Glass effect */
+        .glass {
+            background: hsl(var(--card) / 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid hsl(var(--border) / 0.5);
+        }
+
+        /* Gradient text */
+        .text-gradient {
+            background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Grid pattern background */
+        .bg-grid {
+            background-image:
+                linear-gradient(hsl(var(--primary) / 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, hsl(var(--primary) / 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+
+        /* Stats icon */
+        .stat-icon {
+            width: 3rem;
+            height: 3rem;
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+    </style>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>OpenEndpoint</h1>
-            <p class="tagline">Developer-First Object Storage</p>
+<body class="min-h-screen bg-grid">
+    <div class="container mx-auto max-w-6xl px-6 py-8">
+
+        <!-- Header -->
+        <header class="card p-8 text-center mb-8 animate-fade-in">
+            <div class="flex items-center justify-center gap-4 mb-4">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-violet-500/30 animate-float">
+                    OE
+                </div>
+                <h1 class="text-4xl font-extrabold text-gradient">OpenEndpoint</h1>
+            </div>
+            <p class="text-muted-foreground text-lg font-medium">Developer-First S3-Compatible Object Storage</p>
+            <div class="mt-6">
+                <span class="badge badge-success">Online</span>
+            </div>
         </header>
 
-        <main>
-            <section class="status-card">
-                <h2>System Status</h2>
-                <div class="status-item">
-                    <span class="label">Version:</span>
-                    <span class="value">{{.Version}}</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Status:</span>
-                    <span class="value status-ok">Running</span>
-                </div>
-            </section>
+        <!-- Navigation -->
+        <nav class="glass rounded-xl p-2 mb-8 flex gap-2 flex-wrap">
+            <a href="/_dashboard/" class="btn btn-primary flex-1">Dashboard</a>
+            <a href="/_dashboard/metrics" class="btn btn-outline flex-1">Metrics</a>
+            <a href="/_dashboard/cluster" class="btn btn-outline flex-1">Cluster</a>
+            <a href="/_mgmt/" class="btn btn-outline flex-1">API</a>
+            <a href="/metrics" class="btn btn-outline flex-1">Prometheus</a>
+        </nav>
 
-            <section class="quick-actions">
-                <h2>Quick Actions</h2>
-                <div class="actions">
-                    <a href="/s3/" class="btn">S3 API</a>
-                    <a href="/_mgmt/" class="btn">Management API</a>
-                    <a href="/metrics" class="btn">Metrics</a>
-                    <a href="/_dashboard/cluster" class="btn">Cluster</a>
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- Buckets -->
+            <div class="card p-6 animate-fade-in" style="animation-delay: 0.1s">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="stat-icon bg-violet-500/20 text-violet-400">📦</div>
+                    <span class="text-xs text-muted-foreground">Storage</span>
                 </div>
-            </section>
+                <div class="text-3xl font-bold text-white mb-1" id="bucket-count">-</div>
+                <div class="text-sm text-muted-foreground">Total Buckets</div>
+            </div>
 
-            <section class="endpoints">
-                <h2>Endpoints</h2>
-                <ul>
-                    <li><strong>S3 API:</strong> http://localhost:9000/s3/</li>
-                    <li><strong>Management:</strong> http://localhost:9000/_mgmt/</li>
-                    <li><strong>Health:</strong> http://localhost:9000/health</li>
-                    <li><strong>Metrics:</strong> http://localhost:9000/metrics</li>
-                    <li><strong>Cluster:</strong> http://localhost:9000/_dashboard/cluster</li>
-                </ul>
-            </section>
-        </main>
+            <!-- Objects -->
+            <div class="card p-6 animate-fade-in" style="animation-delay: 0.2s">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="stat-icon bg-emerald-500/20 text-emerald-400">📄</div>
+                    <span class="text-xs text-muted-foreground">Data</span>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="object-count">-</div>
+                <div class="text-sm text-muted-foreground">Total Objects</div>
+            </div>
 
-        <footer>
-            <p>&copy; 2026 OpenEndpoint. Apache License 2.0</p>
+            <!-- Uptime -->
+            <div class="card p-6 animate-fade-in" style="animation-delay: 0.3s">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="stat-icon bg-amber-500/20 text-amber-400">⏱️</div>
+                    <span class="text-xs text-muted-foreground">Runtime</span>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1" id="uptime">-</div>
+                <div class="text-sm text-muted-foreground">Uptime</div>
+            </div>
+
+            <!-- Version -->
+            <div class="card p-6 animate-fade-in" style="animation-delay: 0.4s">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="stat-icon bg-cyan-500/20 text-cyan-400">⚙️</div>
+                    <span class="text-xs text-muted-foreground">Release</span>
+                </div>
+                <div class="text-3xl font-bold text-white mb-1">{{.Version}}</div>
+                <div class="text-sm text-muted-foreground">Version</div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Quick Actions & Endpoints -->
+            <div class="lg:col-span-2 space-y-8">
+                <!-- Quick Actions -->
+                <div class="card p-6 animate-fade-in" style="animation-delay: 0.5s">
+                    <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                        <span class="w-1 h-6 bg-gradient-to-b from-violet-500 to-purple-500 rounded-full"></span>
+                        Quick Actions
+                    </h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        <a href="/s3/" class="btn btn-outline justify-start">
+                            <span class="text-lg">📁</span>
+                            S3 Browser
+                        </a>
+                        <a href="/_mgmt/buckets" class="btn btn-outline justify-start">
+                            <span class="text-lg">📦</span>
+                            Manage Buckets
+                        </a>
+                        <a href="/metrics" class="btn btn-outline justify-start">
+                            <span class="text-lg">📊</span>
+                            View Metrics
+                        </a>
+                        <a href="/_dashboard/cluster" class="btn btn-outline justify-start">
+                            <span class="text-lg">🌐</span>
+                            Cluster Status
+                        </a>
+                    </div>
+                </div>
+
+                <!-- API Endpoints -->
+                <div class="card p-6 animate-fade-in" style="animation-delay: 0.6s">
+                    <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                        <span class="w-1 h-6 bg-gradient-to-b from-violet-500 to-purple-500 rounded-full"></span>
+                        API Endpoints
+                    </h2>
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                            <span class="font-medium">S3 API</span>
+                            <code class="text-sm bg-violet-500/20 text-violet-300 px-3 py-1 rounded">/s3/</code>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                            <span class="font-medium">Management</span>
+                            <code class="text-sm bg-violet-500/20 text-violet-300 px-3 py-1 rounded">/_mgmt/</code>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                            <span class="font-medium">Health Check</span>
+                            <code class="text-sm bg-violet-500/20 text-violet-300 px-3 py-1 rounded">/health</code>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                            <span class="font-medium">Metrics</span>
+                            <code class="text-sm bg-violet-500/20 text-violet-300 px-3 py-1 rounded">/metrics</code>
+                        </div>
+                        <div class="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
+                            <span class="font-medium">Dashboard</span>
+                            <code class="text-sm bg-violet-500/20 text-violet-300 px-3 py-1 rounded">/_dashboard/</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-8">
+                <!-- System Info -->
+                <div class="card p-6 animate-fade-in" style="animation-delay: 0.7s">
+                    <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                        <span class="w-1 h-6 bg-gradient-to-b from-violet-500 to-purple-500 rounded-full"></span>
+                        System Info
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center py-2 border-b border-border">
+                            <span class="text-muted-foreground">Status</span>
+                            <span class="badge badge-success">Running</span>
+                        </div>
+                        <div class="flex justify-between items-center py-2 border-b border-border">
+                            <span class="text-muted-foreground">Version</span>
+                            <span class="font-semibold">{{.Version}}</span>
+                        </div>
+                        <div class="flex justify-between items-center py-2 border-b border-border">
+                            <span class="text-muted-foreground">Protocol</span>
+                            <span class="font-semibold">S3 Compatible</span>
+                        </div>
+                        <div class="flex justify-between items-center py-2 border-b border-border">
+                            <span class="text-muted-foreground">Storage</span>
+                            <span class="font-semibold">FlatFile</span>
+                        </div>
+                        <div class="flex justify-between items-center py-2 border-b border-border">
+                            <span class="text-muted-foreground">Metadata</span>
+                            <span class="font-semibold">Pebble</span>
+                        </div>
+                        <div class="flex justify-between items-center py-2">
+                            <span class="text-muted-foreground">Build</span>
+                            <span class="font-semibold">Release</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Storage Stats -->
+                <div class="card p-6 animate-fade-in" style="animation-delay: 0.8s">
+                    <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                        <span class="w-1 h-6 bg-gradient-to-b from-violet-500 to-purple-500 rounded-full"></span>
+                        Storage Stats
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-sm mb-2">
+                                <span class="text-muted-foreground">Used</span>
+                                <span class="font-semibold" id="storage-used">-</span>
+                            </div>
+                            <div class="h-2 bg-muted rounded-full overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full" style="width: 35%"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-sm mb-2">
+                                <span class="text-muted-foreground">Available</span>
+                                <span class="font-semibold" id="storage-avail">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Links -->
+                <div class="card p-6 animate-fade-in" style="animation-delay: 0.9s">
+                    <h2 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                        <span class="w-1 h-6 bg-gradient-to-b from-violet-500 to-purple-500 rounded-full"></span>
+                        Quick Links
+                    </h2>
+                    <div class="space-y-2">
+                        <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html" target="_blank" class="btn btn-outline w-full justify-start text-sm">
+                            🌐 AWS S3 Docs
+                        </a>
+                        <a href="https://github.com/anthropics/claude-code" target="_blank" class="btn btn-outline w-full justify-start text-sm">
+                            📖 Documentation
+                        </a>
+                        <a href="https://github.com" target="_blank" class="btn btn-outline w-full justify-start text-sm">
+                            ⭐ GitHub
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="text-center mt-12 py-6 text-muted-foreground">
+            <p class="text-sm">© 2026 OpenEndpoint. Apache License 2.0</p>
+            <p class="text-xs mt-2">S3-Compatible Object Storage Platform</p>
         </footer>
     </div>
+
+    <script>
+        // Fetch bucket count
+        fetch('/_mgmt/buckets')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('bucket-count').textContent = data.buckets ? data.buckets.length : '0';
+            })
+            .catch(() => {
+                document.getElementById('bucket-count').textContent = '0';
+            });
+
+        // Set uptime
+        const startTime = Date.now();
+        setInterval(() => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(elapsed / 3600);
+            const minutes = Math.floor((elapsed % 3600) / 60);
+            const seconds = elapsed % 60;
+            document.getElementById('uptime').textContent =
+                `${hours}h ${minutes}m ${seconds}s`;
+        }, 1000);
+    </script>
 </body>
 </html>

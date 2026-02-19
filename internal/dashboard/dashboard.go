@@ -5,31 +5,36 @@ import (
 	"embed"
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"net/http"
 )
 
-// Static files embedded
+// StaticFiles embedded static content
 //
-//go:embed static/*
-var Static embed.FS
+//go:embed static
+var StaticFiles embed.FS
 
 // HTML templates
 //
 //go:embed templates/*.html
 var Templates embed.FS
 
-// ClusterGetter interface for getting cluster info
-type ClusterGetter interface {
-	GetClusterInfo() interface{}
-	GetNodes() interface{}
+// getStatic returns the static subdirectory as an fs.FS
+func getStatic() fs.FS {
+	sub, _ := fs.Sub(StaticFiles, "static")
+	return sub
 }
 
 // Handler returns the dashboard HTTP handler
-func Handler(clusterGetter ClusterGetter) http.Handler {
+func Handler(clusterInfo interface {
+	GetClusterInfo() interface{}
+	GetNodes() interface{}
+}) http.Handler {
 	mux := http.NewServeMux()
 
-	// Serve static files
-	mux.Handle("/static/", http.FileServer(http.FS(Static)))
+	// Serve static files from embedded filesystem
+	staticHandler := http.FileServer(getStatic())
+	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler))
 
 	// Serve index
 	mux.HandleFunc("/", indexHandler)
@@ -38,7 +43,7 @@ func Handler(clusterGetter ClusterGetter) http.Handler {
 	mux.HandleFunc("/_dashboard/metrics", metricsHandler)
 
 	// Serve cluster dashboard
-	mux.HandleFunc("/_dashboard/cluster", clusterHandler(clusterGetter))
+	mux.HandleFunc("/_dashboard/cluster", clusterHandler(clusterInfo))
 
 	return mux
 }
@@ -55,7 +60,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		Version string
 	}{
 		Title:   "OpenEndpoint Dashboard",
-		Version: "2.0.0",
+		Version: "1.0.0",
 	}
 
 	tmpl.Execute(w, data)
@@ -73,32 +78,40 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 		Version string
 	}{
 		Title:   "OpenEndpoint Metrics",
-		Version: "2.0.0",
+		Version: "1.0.0",
 	}
 
 	tmpl.Execute(w, data)
 }
 
-func clusterHandler(getter ClusterGetter) http.HandlerFunc {
+func clusterHandler(clusterInfo interface {
+	GetClusterInfo() interface{}
+	GetNodes() interface{}
+}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Check if it's an API request
 		if r.URL.Query().Get("format") == "json" || r.Header.Get("Accept") == "application/json" {
 			w.Header().Set("Content-Type", "application/json")
 
-			// Get cluster info
-			info := getter.GetClusterInfo()
-			nodes := getter.GetNodes()
+			var nodes interface{}
+			var replicationFactor int
 
-			response := map[string]interface{}{
-				"replicationFactor": 3,
-				"totalStorage":      int64(0),
-				"nodes":            nodes,
+			if clusterInfo != nil {
+				nodes = clusterInfo.GetNodes()
+				info := clusterInfo.GetClusterInfo()
+				if info != nil {
+					if ci, ok := info.(interface{ ReplicationFactor() int }); ok {
+						replicationFactor = ci.ReplicationFactor()
+					}
+				}
+			} else {
+				nodes = []interface{}{}
 			}
 
-			if info != nil {
-				if ci, ok := info.(interface{ ReplicationFactor() int }); ok {
-					response["replicationFactor"] = ci.ReplicationFactor()
-				}
+			response := map[string]interface{}{
+				"replicationFactor": replicationFactor,
+				"totalStorage":      int64(0),
+				"nodes":            nodes,
 			}
 
 			json.NewEncoder(w).Encode(response)
@@ -117,7 +130,7 @@ func clusterHandler(getter ClusterGetter) http.HandlerFunc {
 			Version string
 		}{
 			Title:   "OpenEndpoint Cluster",
-			Version: "2.0.0",
+			Version: "1.0.0",
 		}
 
 		tmpl.Execute(w, data)
