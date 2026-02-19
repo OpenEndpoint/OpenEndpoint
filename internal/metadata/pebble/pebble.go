@@ -106,6 +106,21 @@ func publicAccessBlockKey(bucket string) []byte {
 	return []byte("publicaccessblock:" + bucket)
 }
 
+// accelerateKey generates an accelerate key
+func accelerateKey(bucket string) []byte {
+	return []byte("accelerate:" + bucket)
+}
+
+// inventoryKey generates an inventory key
+func inventoryKey(bucket, id string) []byte {
+	return []byte("inventory:" + bucket + "/" + id)
+}
+
+// analyticsKey generates an analytics key
+func analyticsKey(bucket, id string) []byte {
+	return []byte("analytics:" + bucket + "/" + id)
+}
+
 // CreateBucket creates a new bucket
 func (p *PebbleStore) CreateBucket(ctx context.Context, bucket string) error {
 	p.mu.Lock()
@@ -456,6 +471,47 @@ func (p *PebbleStore) GetLifecycleRules(ctx context.Context, bucket string) ([]m
 	return rules, nil
 }
 
+// DeleteLifecycleRule deletes a lifecycle rule from a bucket
+func (p *PebbleStore) DeleteLifecycleRule(ctx context.Context, bucket, ruleID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, closer, err := p.db.Get(lifecycleKey(bucket))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil
+		}
+		return err
+	}
+	defer closer.Close()
+
+	var rules []metadata.LifecycleRule
+	if err := decodeMeta(data, &rules); err != nil {
+		return err
+	}
+
+	// Filter out the rule with the matching ID
+	var newRules []metadata.LifecycleRule
+	for _, rule := range rules {
+		if rule.ID != ruleID {
+			newRules = append(newRules, rule)
+		}
+	}
+
+	// If no rules left, delete the key
+	if len(newRules) == 0 {
+		return p.db.Delete(lifecycleKey(bucket), pebble.Sync)
+	}
+
+	// Save remaining rules
+	data, err = encodeMeta(newRules)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(lifecycleKey(bucket), data, pebble.Sync)
+}
+
 // PutBucketVersioning puts bucket versioning configuration
 func (p *PebbleStore) PutBucketVersioning(ctx context.Context, bucket string, versioning *metadata.BucketVersioning) error {
 	p.mu.Lock()
@@ -526,6 +582,14 @@ func (p *PebbleStore) GetBucketCors(ctx context.Context, bucket string) (*metada
 	return &cors, nil
 }
 
+// DeleteBucketCors deletes CORS configuration
+func (p *PebbleStore) DeleteBucketCors(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(corsKey(bucket), pebble.Sync)
+}
+
 // PutBucketPolicy stores bucket policy
 func (p *PebbleStore) PutBucketPolicy(ctx context.Context, bucket string, policy *string) error {
 	p.mu.Lock()
@@ -554,6 +618,14 @@ func (p *PebbleStore) GetBucketPolicy(ctx context.Context, bucket string) (*stri
 
 	policy := string(data)
 	return &policy, nil
+}
+
+// DeleteBucketPolicy deletes bucket policy
+func (p *PebbleStore) DeleteBucketPolicy(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(policyKey(bucket), pebble.Sync)
 }
 
 // PutBucketEncryption stores bucket encryption configuration
@@ -589,6 +661,14 @@ func (p *PebbleStore) GetBucketEncryption(ctx context.Context, bucket string) (*
 	}
 
 	return &encryption, nil
+}
+
+// DeleteBucketEncryption deletes encryption configuration
+func (p *PebbleStore) DeleteBucketEncryption(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(encryptionKey(bucket), pebble.Sync)
 }
 
 // PutReplicationConfig stores replication configuration
@@ -669,6 +749,14 @@ func (p *PebbleStore) GetBucketTags(ctx context.Context, bucket string) (map[str
 	return tags, nil
 }
 
+// DeleteBucketTags deletes bucket tags
+func (p *PebbleStore) DeleteBucketTags(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(tagsKey(bucket), pebble.Sync)
+}
+
 // PutObjectLock stores object lock configuration
 func (p *PebbleStore) PutObjectLock(ctx context.Context, bucket string, config *metadata.ObjectLockConfig) error {
 	p.mu.Lock()
@@ -704,6 +792,94 @@ func (p *PebbleStore) GetObjectLock(ctx context.Context, bucket string) (*metada
 	return &config, nil
 }
 
+// DeleteObjectLock deletes object lock configuration
+func (p *PebbleStore) DeleteObjectLock(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(objectLockKey(bucket), pebble.Sync)
+}
+
+// retentionKey generates an object retention key
+func retentionKey(bucket, key string) []byte {
+	return []byte("retention:" + bucket + ":" + key)
+}
+
+// PutObjectRetention stores object retention
+func (p *PebbleStore) PutObjectRetention(ctx context.Context, bucket, key string, retention *metadata.ObjectRetention) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(retention)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(retentionKey(bucket, key), data, pebble.Sync)
+}
+
+// GetObjectRetention retrieves object retention
+func (p *PebbleStore) GetObjectRetention(ctx context.Context, bucket, key string) (*metadata.ObjectRetention, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, closer, err := p.db.Get(retentionKey(bucket, key))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+
+	var retention metadata.ObjectRetention
+	if err := decodeMeta(data, &retention); err != nil {
+		return nil, err
+	}
+
+	return &retention, nil
+}
+
+// legalHoldKey generates an object legal hold key
+func legalHoldKey(bucket, key string) []byte {
+	return []byte("legalhold:" + bucket + ":" + key)
+}
+
+// PutObjectLegalHold stores object legal hold
+func (p *PebbleStore) PutObjectLegalHold(ctx context.Context, bucket, key string, legalHold *metadata.ObjectLegalHold) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(legalHold)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(legalHoldKey(bucket, key), data, pebble.Sync)
+}
+
+// GetObjectLegalHold retrieves object legal hold
+func (p *PebbleStore) GetObjectLegalHold(ctx context.Context, bucket, key string) (*metadata.ObjectLegalHold, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, closer, err := p.db.Get(legalHoldKey(bucket, key))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+
+	var legalHold metadata.ObjectLegalHold
+	if err := decodeMeta(data, &legalHold); err != nil {
+		return nil, err
+	}
+
+	return &legalHold, nil
+}
+
 // PutPublicAccessBlock stores public access block configuration
 func (p *PebbleStore) PutPublicAccessBlock(ctx context.Context, bucket string, config *metadata.PublicAccessBlockConfiguration) error {
 	p.mu.Lock()
@@ -737,6 +913,557 @@ func (p *PebbleStore) GetPublicAccessBlock(ctx context.Context, bucket string) (
 	}
 
 	return &config, nil
+}
+
+// DeletePublicAccessBlock deletes public access block configuration
+func (p *PebbleStore) DeletePublicAccessBlock(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(publicAccessBlockKey(bucket), pebble.Sync)
+}
+
+// PutBucketAccelerate stores bucket accelerate configuration
+func (p *PebbleStore) PutBucketAccelerate(ctx context.Context, bucket string, config *metadata.BucketAccelerateConfiguration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(accelerateKey(bucket), data, pebble.Sync)
+}
+
+// GetBucketAccelerate gets bucket accelerate configuration
+func (p *PebbleStore) GetBucketAccelerate(ctx context.Context, bucket string) (*metadata.BucketAccelerateConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	data, closer, err := p.db.Get(accelerateKey(bucket))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.BucketAccelerateConfiguration
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// DeleteBucketAccelerate deletes bucket accelerate configuration
+func (p *PebbleStore) DeleteBucketAccelerate(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(accelerateKey(bucket), pebble.Sync)
+}
+
+// PutBucketInventory stores bucket inventory configuration
+func (p *PebbleStore) PutBucketInventory(ctx context.Context, bucket, id string, config *metadata.InventoryConfiguration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(inventoryKey(bucket, id), data, pebble.Sync)
+}
+
+// GetBucketInventory gets bucket inventory configuration
+func (p *PebbleStore) GetBucketInventory(ctx context.Context, bucket, id string) (*metadata.InventoryConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	data, closer, err := p.db.Get(inventoryKey(bucket, id))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.InventoryConfiguration
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// ListBucketInventory lists all inventory configurations for a bucket
+func (p *PebbleStore) ListBucketInventory(ctx context.Context, bucket string) ([]metadata.InventoryConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	prefix := "inventory:" + bucket + "/"
+
+	iter, err := p.db.NewIter(nil)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var configs []metadata.InventoryConfiguration
+	for iter.SeekGE([]byte(prefix)); iter.Valid(); iter.Next() {
+		key := string(iter.Key())
+		if len(key) < len(prefix) || key[:len(prefix)] != prefix {
+			break
+		}
+
+		var config metadata.InventoryConfiguration
+		if err := decodeMeta(iter.Value(), &config); err != nil {
+			continue
+		}
+
+		configs = append(configs, config)
+	}
+
+	return configs, nil
+}
+
+// DeleteBucketInventory deletes bucket inventory configuration
+func (p *PebbleStore) DeleteBucketInventory(ctx context.Context, bucket, id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(inventoryKey(bucket, id), pebble.Sync)
+}
+
+// PutBucketAnalytics stores bucket analytics configuration
+func (p *PebbleStore) PutBucketAnalytics(ctx context.Context, bucket, id string, config *metadata.AnalyticsConfiguration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(analyticsKey(bucket, id), data, pebble.Sync)
+}
+
+// GetBucketAnalytics gets bucket analytics configuration
+func (p *PebbleStore) GetBucketAnalytics(ctx context.Context, bucket, id string) (*metadata.AnalyticsConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	data, closer, err := p.db.Get(analyticsKey(bucket, id))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.AnalyticsConfiguration
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// ListBucketAnalytics lists all analytics configurations for a bucket
+func (p *PebbleStore) ListBucketAnalytics(ctx context.Context, bucket string) ([]metadata.AnalyticsConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	prefix := "analytics:" + bucket + "/"
+
+	iter, err := p.db.NewIter(nil)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	var configs []metadata.AnalyticsConfiguration
+	for iter.SeekGE([]byte(prefix)); iter.Valid(); iter.Next() {
+		key := string(iter.Key())
+		if len(key) < len(prefix) || key[:len(prefix)] != prefix {
+			break
+		}
+
+		var config metadata.AnalyticsConfiguration
+		if err := decodeMeta(iter.Value(), &config); err != nil {
+			continue
+		}
+
+		configs = append(configs, config)
+	}
+
+	return configs, nil
+}
+
+// DeleteBucketAnalytics deletes bucket analytics configuration
+func (p *PebbleStore) DeleteBucketAnalytics(ctx context.Context, bucket, id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(analyticsKey(bucket, id), pebble.Sync)
+}
+
+// presignedURLKey returns the key for a presigned URL
+func presignedURLKey(url string) []byte {
+	return []byte("presigned:" + url)
+}
+
+// PutPresignedURL stores a presigned URL request
+func (p *PebbleStore) PutPresignedURL(ctx context.Context, url string, req *metadata.PresignedURLRequest) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(req)
+	if err != nil {
+		return err
+	}
+	return p.db.Set(presignedURLKey(url), data, pebble.Sync)
+}
+
+// GetPresignedURL retrieves a presigned URL request
+func (p *PebbleStore) GetPresignedURL(ctx context.Context, url string) (*metadata.PresignedURLRequest, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := p.db.Get(presignedURLKey(url))
+	if err == pebble.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var req metadata.PresignedURLRequest
+	if err := decodeMeta(data, &req); err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+// DeletePresignedURL deletes a presigned URL
+func (p *PebbleStore) DeletePresignedURL(ctx context.Context, url string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(presignedURLKey(url), pebble.Sync)
+}
+
+// websiteKey generates a website configuration key
+func websiteKey(bucket string) []byte {
+	return []byte("website:" + bucket)
+}
+
+// PutBucketWebsite stores bucket website configuration
+func (p *PebbleStore) PutBucketWebsite(ctx context.Context, bucket string, config *metadata.WebsiteConfiguration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(websiteKey(bucket), data, pebble.Sync)
+}
+
+// GetBucketWebsite gets bucket website configuration
+func (p *PebbleStore) GetBucketWebsite(ctx context.Context, bucket string) (*metadata.WebsiteConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	data, closer, err := p.db.Get(websiteKey(bucket))
+	if err == pebble.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.WebsiteConfiguration
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// DeleteBucketWebsite deletes bucket website configuration
+func (p *PebbleStore) DeleteBucketWebsite(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(websiteKey(bucket), pebble.Sync)
+}
+
+// notificationKey generates a notification configuration key
+func notificationKey(bucket string) []byte {
+	return []byte("notification:" + bucket)
+}
+
+// PutBucketNotification stores bucket notification configuration
+func (p *PebbleStore) PutBucketNotification(ctx context.Context, bucket string, config *metadata.NotificationConfiguration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(notificationKey(bucket), data, pebble.Sync)
+}
+
+// GetBucketNotification gets bucket notification configuration
+func (p *PebbleStore) GetBucketNotification(ctx context.Context, bucket string) (*metadata.NotificationConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	data, closer, err := p.db.Get(notificationKey(bucket))
+	if err == pebble.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.NotificationConfiguration
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// DeleteBucketNotification deletes bucket notification configuration
+func (p *PebbleStore) DeleteBucketNotification(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(notificationKey(bucket), pebble.Sync)
+}
+
+// loggingKey generates a logging configuration key
+func loggingKey(bucket string) []byte {
+	return []byte("logging:" + bucket)
+}
+
+// PutBucketLogging stores bucket logging configuration
+func (p *PebbleStore) PutBucketLogging(ctx context.Context, bucket string, config *metadata.LoggingConfiguration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(loggingKey(bucket), data, pebble.Sync)
+}
+
+// GetBucketLogging gets bucket logging configuration
+func (p *PebbleStore) GetBucketLogging(ctx context.Context, bucket string) (*metadata.LoggingConfiguration, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	data, closer, err := p.db.Get(loggingKey(bucket))
+	if err == pebble.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.LoggingConfiguration
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// DeleteBucketLogging deletes bucket logging configuration
+func (p *PebbleStore) DeleteBucketLogging(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(loggingKey(bucket), pebble.Sync)
+}
+
+// locationKey generates a location configuration key
+func locationKey(bucket string) []byte {
+	return []byte("location:" + bucket)
+}
+
+// PutBucketLocation stores bucket location
+func (p *PebbleStore) PutBucketLocation(ctx context.Context, bucket string, location string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Set(locationKey(bucket), []byte(location), pebble.Sync)
+}
+
+// GetBucketLocation retrieves bucket location
+func (p *PebbleStore) GetBucketLocation(ctx context.Context, bucket string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, closer, err := p.db.Get(locationKey(bucket))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return "", nil
+		}
+		return "", err
+	}
+	defer closer.Close()
+
+	return string(data), nil
+}
+
+// ownershipKey generates an ownership controls key
+func ownershipKey(bucket string) []byte {
+	return []byte("ownership:" + bucket)
+}
+
+// PutBucketOwnershipControls stores bucket ownership controls
+func (p *PebbleStore) PutBucketOwnershipControls(ctx context.Context, bucket string, config *metadata.OwnershipControls) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(ownershipKey(bucket), data, pebble.Sync)
+}
+
+// GetBucketOwnershipControls retrieves bucket ownership controls
+func (p *PebbleStore) GetBucketOwnershipControls(ctx context.Context, bucket string) (*metadata.OwnershipControls, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, closer, err := p.db.Get(ownershipKey(bucket))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.OwnershipControls
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// DeleteBucketOwnershipControls deletes bucket ownership controls
+func (p *PebbleStore) DeleteBucketOwnershipControls(ctx context.Context, bucket string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(ownershipKey(bucket), pebble.Sync)
+}
+
+// metricsKey generates a metrics configuration key
+func metricsKey(bucket, id string) []byte {
+	return []byte("metrics:" + bucket + ":" + id)
+}
+
+// metricsListKey generates a metrics list key for a bucket
+func metricsListKey(bucket string) []byte {
+	return []byte("metrics:list:" + bucket)
+}
+
+// PutBucketMetrics stores bucket metrics configuration
+func (p *PebbleStore) PutBucketMetrics(ctx context.Context, bucket string, id string, config *metadata.MetricsConfiguration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, err := encodeMeta(config)
+	if err != nil {
+		return err
+	}
+
+	return p.db.Set(metricsKey(bucket, id), data, pebble.Sync)
+}
+
+// GetBucketMetrics retrieves bucket metrics configuration
+func (p *PebbleStore) GetBucketMetrics(ctx context.Context, bucket string, id string) (*metadata.MetricsConfiguration, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	data, closer, err := p.db.Get(metricsKey(bucket, id))
+	if err != nil {
+		if err == pebble.ErrNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+
+	var config metadata.MetricsConfiguration
+	if err := decodeMeta(data, &config); err != nil {
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+// DeleteBucketMetrics deletes bucket metrics configuration
+func (p *PebbleStore) DeleteBucketMetrics(ctx context.Context, bucket string, id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.db.Delete(metricsKey(bucket, id), pebble.Sync)
+}
+
+// ListBucketMetrics lists all metrics configurations for a bucket
+func (p *PebbleStore) ListBucketMetrics(ctx context.Context, bucket string) ([]metadata.MetricsConfiguration, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	prefix := []byte("metrics:" + bucket + ":")
+	var configs []metadata.MetricsConfiguration
+
+	iter := p.db.NewIter(nil, nil)
+	defer iter.Close()
+
+	for iter.Seek(prefix); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if !bytes.HasPrefix(key, prefix) {
+			break
+		}
+
+		// Skip the list key
+		if bytes.HasSuffix(key, []byte(":list")) {
+			continue
+		}
+
+		var config metadata.MetricsConfiguration
+		if err := decodeMeta(iter.Value(), &config); err != nil {
+			continue
+		}
+		configs = append(configs, config)
+	}
+
+	return configs, nil
 }
 
 // Close closes the store

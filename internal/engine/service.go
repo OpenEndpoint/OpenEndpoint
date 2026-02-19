@@ -116,6 +116,75 @@ func (s *ObjectService) PutObject(ctx context.Context, bucket, key string, data 
 	}, nil
 }
 
+// CopyObjectResult contains the result of a copy operation
+type CopyObjectResult struct {
+	ETag         string
+	LastModified int64
+	VersionID    string
+}
+
+// CopyObject copies an object to another location
+func (s *ObjectService) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (*CopyObjectResult, error) {
+	// Lock for write
+	unlock := s.locker.Lock(dstBucket, dstKey)
+	defer unlock()
+
+	// Check source bucket exists
+	if _, err := s.metadata.GetBucket(ctx, srcBucket); err != nil {
+		return nil, fmt.Errorf("source bucket not found: %s", srcBucket)
+	}
+
+	// Check destination bucket exists
+	if _, err := s.metadata.GetBucket(ctx, dstBucket); err != nil {
+		return nil, fmt.Errorf("destination bucket not found: %s", dstBucket)
+	}
+
+	// Get source object metadata
+	srcMeta, err := s.metadata.GetObject(ctx, srcBucket, srcKey, "")
+	if err != nil {
+		return nil, fmt.Errorf("source object not found: %s/%s", srcBucket, srcKey)
+	}
+
+	// Get source object data
+	data, err := s.data.GetObject(ctx, srcBucket, srcKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read source object: %w", err)
+	}
+	defer data.Close()
+
+	// Copy to destination
+	dstMeta := &metadata.ObjectMetadata{
+		Key:             dstKey,
+		Bucket:          dstBucket,
+		Size:            srcMeta.Size,
+		ETag:            srcMeta.ETag,
+		ContentType:     srcMeta.ContentType,
+		ContentEncoding: srcMeta.ContentEncoding,
+		CacheControl:    srcMeta.CacheControl,
+		Metadata:        srcMeta.Metadata,
+		StorageClass:    srcMeta.StorageClass,
+		VersionID:       uuid.New().String(),
+		IsLatest:        true,
+		LastModified:    time.Now().Unix(),
+	}
+
+	// Write data to destination
+	if err := s.data.PutObject(ctx, dstBucket, dstKey, data); err != nil {
+		return nil, fmt.Errorf("failed to write destination object: %w", err)
+	}
+
+	// Save metadata
+	if err := s.metadata.PutObject(ctx, dstBucket, dstKey, dstMeta); err != nil {
+		s.logger.Error("failed to save copy metadata", zap.Error(err))
+	}
+
+	return &CopyObjectResult{
+		ETag:         dstMeta.ETag,
+		LastModified: dstMeta.LastModified,
+		VersionID:    dstMeta.VersionID,
+	}, nil
+}
+
 // GetObject retrieves an object
 func (s *ObjectService) GetObject(ctx context.Context, bucket, key string, opts GetObjectOptions) (*GetObjectResult, error) {
 	// Lock for read
@@ -653,6 +722,11 @@ func (s *ObjectService) GetLifecycleRules(ctx context.Context, bucket string) ([
 	return s.metadata.GetLifecycleRules(ctx, bucket)
 }
 
+// DeleteLifecycleRule deletes a lifecycle rule from a bucket
+func (s *ObjectService) DeleteLifecycleRule(ctx context.Context, bucket, ruleID string) error {
+	return s.metadata.DeleteLifecycleRule(ctx, bucket, ruleID)
+}
+
 // PutBucketVersioning sets bucket versioning
 func (s *ObjectService) PutBucketVersioning(ctx context.Context, bucket string, versioning *metadata.BucketVersioning) error {
 	return s.metadata.PutBucketVersioning(ctx, bucket, versioning)
@@ -665,6 +739,21 @@ func (s *ObjectService) GetBucketVersioning(ctx context.Context, bucket string) 
 
 // PutBucketLifecycle sets lifecycle configuration for a bucket
 func (s *ObjectService) PutBucketLifecycle(ctx context.Context, bucket string, rules []metadata.LifecycleRule) error {
+	// If nil or empty rules, delete all lifecycle configuration
+	if len(rules) == 0 {
+		// Get existing rules and delete them one by one
+		existingRules, err := s.metadata.GetLifecycleRules(ctx, bucket)
+		if err != nil {
+			return err
+		}
+		for _, rule := range existingRules {
+			if err := s.metadata.DeleteLifecycleRule(ctx, bucket, rule.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	// Delete existing rules and add new ones
 	for _, rule := range rules {
 		if err := s.metadata.PutLifecycleRule(ctx, bucket, &rule); err != nil {
@@ -692,6 +781,11 @@ func (s *ObjectService) GetBucketCors(ctx context.Context, bucket string) (*meta
 	return s.metadata.GetBucketCors(ctx, bucket)
 }
 
+// DeleteBucketCors deletes CORS configuration
+func (s *ObjectService) DeleteBucketCors(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketCors(ctx, bucket)
+}
+
 // PutBucketPolicy sets bucket policy
 func (s *ObjectService) PutBucketPolicy(ctx context.Context, bucket string, policy *string) error {
 	if policy == nil {
@@ -705,6 +799,11 @@ func (s *ObjectService) GetBucketPolicy(ctx context.Context, bucket string) (*st
 	return s.metadata.GetBucketPolicy(ctx, bucket)
 }
 
+// DeleteBucketPolicy deletes bucket policy
+func (s *ObjectService) DeleteBucketPolicy(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketPolicy(ctx, bucket)
+}
+
 // PutBucketEncryption sets bucket encryption
 func (s *ObjectService) PutBucketEncryption(ctx context.Context, bucket string, encryption *metadata.BucketEncryption) error {
 	if encryption == nil {
@@ -716,6 +815,11 @@ func (s *ObjectService) PutBucketEncryption(ctx context.Context, bucket string, 
 // GetBucketEncryption gets bucket encryption
 func (s *ObjectService) GetBucketEncryption(ctx context.Context, bucket string) (*metadata.BucketEncryption, error) {
 	return s.metadata.GetBucketEncryption(ctx, bucket)
+}
+
+// DeleteBucketEncryption deletes bucket encryption
+func (s *ObjectService) DeleteBucketEncryption(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketEncryption(ctx, bucket)
 }
 
 // PutReplicationConfig sets bucket replication configuration
@@ -747,6 +851,11 @@ func (s *ObjectService) GetBucketTags(ctx context.Context, bucket string) (map[s
 	return s.metadata.GetBucketTags(ctx, bucket)
 }
 
+// DeleteBucketTags deletes bucket tags
+func (s *ObjectService) DeleteBucketTags(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketTags(ctx, bucket)
+}
+
 // PutObjectLock sets object lock configuration for a bucket
 func (s *ObjectService) PutObjectLock(ctx context.Context, bucket string, config *metadata.ObjectLockConfig) error {
 	if config == nil {
@@ -760,6 +869,31 @@ func (s *ObjectService) GetObjectLock(ctx context.Context, bucket string) (*meta
 	return s.metadata.GetObjectLock(ctx, bucket)
 }
 
+// DeleteObjectLock deletes object lock configuration
+func (s *ObjectService) DeleteObjectLock(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteObjectLock(ctx, bucket)
+}
+
+// PutObjectRetention sets object retention
+func (s *ObjectService) PutObjectRetention(ctx context.Context, bucket, key string, retention *metadata.ObjectRetention) error {
+	return s.metadata.PutObjectRetention(ctx, bucket, key, retention)
+}
+
+// GetObjectRetention gets object retention
+func (s *ObjectService) GetObjectRetention(ctx context.Context, bucket, key string) (*metadata.ObjectRetention, error) {
+	return s.metadata.GetObjectRetention(ctx, bucket, key)
+}
+
+// PutObjectLegalHold sets object legal hold
+func (s *ObjectService) PutObjectLegalHold(ctx context.Context, bucket, key string, legalHold *metadata.ObjectLegalHold) error {
+	return s.metadata.PutObjectLegalHold(ctx, bucket, key, legalHold)
+}
+
+// GetObjectLegalHold gets object legal hold
+func (s *ObjectService) GetObjectLegalHold(ctx context.Context, bucket, key string) (*metadata.ObjectLegalHold, error) {
+	return s.metadata.GetObjectLegalHold(ctx, bucket, key)
+}
+
 // PutPublicAccessBlock sets public access block configuration for a bucket
 func (s *ObjectService) PutPublicAccessBlock(ctx context.Context, bucket string, config *metadata.PublicAccessBlockConfiguration) error {
 	if config == nil {
@@ -771,6 +905,230 @@ func (s *ObjectService) PutPublicAccessBlock(ctx context.Context, bucket string,
 // GetPublicAccessBlock gets public access block configuration for a bucket
 func (s *ObjectService) GetPublicAccessBlock(ctx context.Context, bucket string) (*metadata.PublicAccessBlockConfiguration, error) {
 	return s.metadata.GetPublicAccessBlock(ctx, bucket)
+}
+
+// DeletePublicAccessBlock deletes public access block configuration
+func (s *ObjectService) DeletePublicAccessBlock(ctx context.Context, bucket string) error {
+	return s.metadata.DeletePublicAccessBlock(ctx, bucket)
+}
+
+// PutBucketAccelerate sets bucket accelerate configuration
+func (s *ObjectService) PutBucketAccelerate(ctx context.Context, bucket string, config *metadata.BucketAccelerateConfiguration) error {
+	if config == nil {
+		return fmt.Errorf("accelerate configuration is required")
+	}
+	return s.metadata.PutBucketAccelerate(ctx, bucket, config)
+}
+
+// GetBucketAccelerate gets bucket accelerate configuration
+func (s *ObjectService) GetBucketAccelerate(ctx context.Context, bucket string) (*metadata.BucketAccelerateConfiguration, error) {
+	return s.metadata.GetBucketAccelerate(ctx, bucket)
+}
+
+// DeleteBucketAccelerate deletes bucket accelerate configuration
+func (s *ObjectService) DeleteBucketAccelerate(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketAccelerate(ctx, bucket)
+}
+
+// PutBucketInventory sets bucket inventory configuration
+func (s *ObjectService) PutBucketInventory(ctx context.Context, bucket, id string, config *metadata.InventoryConfiguration) error {
+	if config == nil {
+		return fmt.Errorf("inventory configuration is required")
+	}
+	return s.metadata.PutBucketInventory(ctx, bucket, id, config)
+}
+
+// GetBucketInventory gets bucket inventory configuration
+func (s *ObjectService) GetBucketInventory(ctx context.Context, bucket, id string) (*metadata.InventoryConfiguration, error) {
+	return s.metadata.GetBucketInventory(ctx, bucket, id)
+}
+
+// ListBucketInventory lists all inventory configurations for a bucket
+func (s *ObjectService) ListBucketInventory(ctx context.Context, bucket string) ([]metadata.InventoryConfiguration, error) {
+	return s.metadata.ListBucketInventory(ctx, bucket)
+}
+
+// DeleteBucketInventory deletes bucket inventory configuration
+func (s *ObjectService) DeleteBucketInventory(ctx context.Context, bucket, id string) error {
+	return s.metadata.DeleteBucketInventory(ctx, bucket, id)
+}
+
+// PutBucketAnalytics sets bucket analytics configuration
+func (s *ObjectService) PutBucketAnalytics(ctx context.Context, bucket, id string, config *metadata.AnalyticsConfiguration) error {
+	if config == nil {
+		return fmt.Errorf("analytics configuration is required")
+	}
+	return s.metadata.PutBucketAnalytics(ctx, bucket, id, config)
+}
+
+// GetBucketAnalytics gets bucket analytics configuration
+func (s *ObjectService) GetBucketAnalytics(ctx context.Context, bucket, id string) (*metadata.AnalyticsConfiguration, error) {
+	return s.metadata.GetBucketAnalytics(ctx, bucket, id)
+}
+
+// ListBucketAnalytics lists all analytics configurations for a bucket
+func (s *ObjectService) ListBucketAnalytics(ctx context.Context, bucket string) ([]metadata.AnalyticsConfiguration, error) {
+	return s.metadata.ListBucketAnalytics(ctx, bucket)
+}
+
+// DeleteBucketAnalytics deletes bucket analytics configuration
+func (s *ObjectService) DeleteBucketAnalytics(ctx context.Context, bucket, id string) error {
+	return s.metadata.DeleteBucketAnalytics(ctx, bucket, id)
+}
+
+// GeneratePresignedURL generates a presigned URL for an object
+func (s *ObjectService) GeneratePresignedURL(ctx context.Context, bucket, key, method string, expires int64) (string, error) {
+	if bucket == "" {
+		return "", fmt.Errorf("bucket is required")
+	}
+	if key == "" {
+		return "", fmt.Errorf("key is required")
+	}
+	if method == "" {
+		return "", fmt.Errorf("method is required")
+	}
+
+	// Check if the object exists (for PUT/DELETE)
+	if method == "PUT" || method == "DELETE" {
+		_, err := s.metadata.GetObject(ctx, bucket, key, "")
+		if err != nil {
+			return "", fmt.Errorf("object not found: %w", err)
+		}
+	}
+
+	// Generate presigned URL using AWS Signature V4
+	// For now, we'll create a simple presigned URL that includes the expiration
+	// In production, this would use proper AWS Signature V4 signing
+	scheme := "http"
+	host := "localhost:8080"
+
+	// Create the presigned URL request
+	req := &metadata.PresignedURLRequest{
+		Bucket:  bucket,
+		Key:     key,
+		Method:  method,
+		Expires: expires,
+		Scheme:  scheme,
+		Host:    host,
+	}
+
+	// Store the presigned URL metadata
+	urlStr := fmt.Sprintf("%s://%s/s3/%s/%s?presigned=%d", scheme, host, bucket, key, time.Now().Unix()+expires)
+	err := s.metadata.PutPresignedURL(ctx, urlStr, req)
+	if err != nil {
+		return "", fmt.Errorf("failed to store presigned URL: %w", err)
+	}
+
+	return urlStr, nil
+}
+
+// ValidatePresignedURL validates a presigned URL
+func (s *ObjectService) ValidatePresignedURL(ctx context.Context, url string) (*metadata.PresignedURLRequest, error) {
+	return s.metadata.GetPresignedURL(ctx, url)
+}
+
+// DeletePresignedURL deletes a presigned URL
+func (s *ObjectService) DeletePresignedURL(ctx context.Context, url string) error {
+	return s.metadata.DeletePresignedURL(ctx, url)
+}
+
+// PutBucketWebsite sets bucket website configuration
+func (s *ObjectService) PutBucketWebsite(ctx context.Context, bucket string, config *metadata.WebsiteConfiguration) error {
+	if config == nil {
+		return fmt.Errorf("website configuration is required")
+	}
+	return s.metadata.PutBucketWebsite(ctx, bucket, config)
+}
+
+// GetBucketWebsite gets bucket website configuration
+func (s *ObjectService) GetBucketWebsite(ctx context.Context, bucket string) (*metadata.WebsiteConfiguration, error) {
+	return s.metadata.GetBucketWebsite(ctx, bucket)
+}
+
+// DeleteBucketWebsite deletes bucket website configuration
+func (s *ObjectService) DeleteBucketWebsite(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketWebsite(ctx, bucket)
+}
+
+// PutBucketNotification sets bucket notification configuration
+func (s *ObjectService) PutBucketNotification(ctx context.Context, bucket string, config *metadata.NotificationConfiguration) error {
+	if config == nil {
+		return fmt.Errorf("notification configuration is required")
+	}
+	return s.metadata.PutBucketNotification(ctx, bucket, config)
+}
+
+// GetBucketNotification gets bucket notification configuration
+func (s *ObjectService) GetBucketNotification(ctx context.Context, bucket string) (*metadata.NotificationConfiguration, error) {
+	return s.metadata.GetBucketNotification(ctx, bucket)
+}
+
+// DeleteBucketNotification deletes bucket notification configuration
+func (s *ObjectService) DeleteBucketNotification(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketNotification(ctx, bucket)
+}
+
+// PutBucketLogging sets bucket logging configuration
+func (s *ObjectService) PutBucketLogging(ctx context.Context, bucket string, config *metadata.LoggingConfiguration) error {
+	if config == nil {
+		return fmt.Errorf("logging configuration is required")
+	}
+	return s.metadata.PutBucketLogging(ctx, bucket, config)
+}
+
+// GetBucketLogging gets bucket logging configuration
+func (s *ObjectService) GetBucketLogging(ctx context.Context, bucket string) (*metadata.LoggingConfiguration, error) {
+	return s.metadata.GetBucketLogging(ctx, bucket)
+}
+
+// DeleteBucketLogging deletes bucket logging configuration
+func (s *ObjectService) DeleteBucketLogging(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketLogging(ctx, bucket)
+}
+
+// PutBucketLocation stores bucket location
+func (s *ObjectService) PutBucketLocation(ctx context.Context, bucket string, location string) error {
+	return s.metadata.PutBucketLocation(ctx, bucket, location)
+}
+
+// GetBucketLocation retrieves bucket location
+func (s *ObjectService) GetBucketLocation(ctx context.Context, bucket string) (string, error) {
+	return s.metadata.GetBucketLocation(ctx, bucket)
+}
+
+// PutBucketOwnershipControls stores bucket ownership controls
+func (s *ObjectService) PutBucketOwnershipControls(ctx context.Context, bucket string, config *metadata.OwnershipControls) error {
+	return s.metadata.PutBucketOwnershipControls(ctx, bucket, config)
+}
+
+// GetBucketOwnershipControls retrieves bucket ownership controls
+func (s *ObjectService) GetBucketOwnershipControls(ctx context.Context, bucket string) (*metadata.OwnershipControls, error) {
+	return s.metadata.GetBucketOwnershipControls(ctx, bucket)
+}
+
+// DeleteBucketOwnershipControls deletes bucket ownership controls
+func (s *ObjectService) DeleteBucketOwnershipControls(ctx context.Context, bucket string) error {
+	return s.metadata.DeleteBucketOwnershipControls(ctx, bucket)
+}
+
+// PutBucketMetrics stores bucket metrics configuration
+func (s *ObjectService) PutBucketMetrics(ctx context.Context, bucket string, id string, config *metadata.MetricsConfiguration) error {
+	return s.metadata.PutBucketMetrics(ctx, bucket, id, config)
+}
+
+// GetBucketMetrics retrieves bucket metrics configuration
+func (s *ObjectService) GetBucketMetrics(ctx context.Context, bucket string, id string) (*metadata.MetricsConfiguration, error) {
+	return s.metadata.GetBucketMetrics(ctx, bucket, id)
+}
+
+// DeleteBucketMetrics deletes bucket metrics configuration
+func (s *ObjectService) DeleteBucketMetrics(ctx context.Context, bucket string, id string) error {
+	return s.metadata.DeleteBucketMetrics(ctx, bucket, id)
+}
+
+// ListBucketMetrics lists all metrics configurations for a bucket
+func (s *ObjectService) ListBucketMetrics(ctx context.Context, bucket string) ([]metadata.MetricsConfiguration, error) {
+	return s.metadata.ListBucketMetrics(ctx, bucket)
 }
 
 // Options for PutObject

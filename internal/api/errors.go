@@ -55,6 +55,42 @@ var (
 		statusCode: 404,
 	}
 
+	ErrInvalidObjectState = &s3Error{
+		code:       "InvalidObjectState",
+		message:    "The operation is not valid for the object's storage class.",
+		statusCode: 400,
+	}
+
+	ErrOwnershipControlsNotFound = &s3Error{
+		code:       "OwnershipControlsNotFound",
+		message:    "The ownership controls for this bucket do not exist.",
+		statusCode: 404,
+	}
+
+	ErrMetricsNotFound = &s3Error{
+		code:       "MetricsNotFound",
+		message:    "The metrics configuration for this bucket does not exist.",
+		statusCode: 404,
+	}
+
+	ErrReplicationNotFound = &s3Error{
+		code:       "ReplicationNotFound",
+		message:    "The replication configuration for this bucket does not exist.",
+		statusCode: 404,
+	}
+
+	ErrObjectRetentionNotFound = &s3Error{
+		code:       "ObjectRetentionNotFound",
+		message:    "The object retention configuration does not exist.",
+		statusCode: 404,
+	}
+
+	ErrObjectLegalHoldNotFound = &s3Error{
+		code:       "ObjectLegalHoldNotFound",
+		message:    "The object legal hold does not exist.",
+		statusCode: 404,
+	}
+
 	ErrNoSuchUpload = &s3Error{
 		code:       "NoSuchUpload",
 		message:    "The specified multipart upload does not exist.",
@@ -173,5 +209,47 @@ var (
 		code:       "InvalidRequest",
 		message:    "The request is invalid.",
 		statusCode: 400,
+	}
+
+	ErrInvalidAccelerateConfiguration = &s3Error{
+		code:       "InvalidAccelerateConfiguration",
+		message:    "The accelerate configuration is invalid.",
+		statusCode: 400,
+	}
+
+	ErrInventoryNotFound = &s3Error{
+		code:       "InventoryConfigurationNotFoundError",
+		message:    "The specified inventory configuration does not exist.",
+		statusCode: 404,
+	}
+
+	ErrAnalyticsNotFound = &s3Error{
+		code:       "AnalyticsConfigurationNotFoundError",
+		message:    "The specified analytics configuration does not exist.",
+		statusCode: 404,
+	}
+
+	ErrPresignedURLExpired = &s3Error{
+		code:       "PresignedURLExpired",
+		message:    "The presigned URL has expired.",
+		statusCode: 403,
+	}
+
+	ErrPresignedURLNotFound = &s3Error{
+		code:       "PresignedURLNotFoundError",
+		message:    "The specified presigned URL does not exist.",
+		statusCode: 404,
+	}
+
+	ErrInvalidPresignedURL = &s3Error{
+		code:       "InvalidPresignedURL",
+		message:    "The presigned URL is invalid.",
+		statusCode: 400,
+	}
+
+	ErrWebsiteNotFound = &s3Error{
+		code:       "NoSuchWebsiteConfiguration",
+		message:    "The specified bucket website configuration does not exist.",
+		statusCode: 404,
 	}
 )
