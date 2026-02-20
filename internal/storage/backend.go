@@ -34,6 +34,9 @@ type StorageBackend interface {
 	// ListBuckets lists all buckets
 	ListBuckets(ctx context.Context) ([]BucketInfo, error)
 
+	// ComputeStorageMetrics computes total storage size and object count
+	ComputeStorageMetrics() (int64, int64, error)
+
 	// Close closes the storage backend
 	Close() error
 }

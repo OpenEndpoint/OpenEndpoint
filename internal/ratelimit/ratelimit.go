@@ -81,18 +81,46 @@ func (l *Limiter) Reset() {
 
 // BucketLimiter wraps a Limiter for HTTP handling
 type BucketLimiter struct {
-	limiter  *Limiter
-	ipLimits map[string]*Limiter
-	defaultLimit *Limiter
-	mu       sync.RWMutex
+	limiter       *Limiter
+	ipLimits      map[string]*limiterEntry
+	defaultLimit  *Limiter
+	mu            sync.RWMutex
+	cleanupPeriod time.Duration
+	maxAge        time.Duration
+}
+
+// limiterEntry wraps a limiter with last access time
+type limiterEntry struct {
+	limiter    *Limiter
+	lastAccess time.Time
 }
 
 // NewBucketLimiter creates a new bucket-based limiter
 func NewBucketLimiter(maxTokens, refillRate float64) *BucketLimiter {
-	return &BucketLimiter{
-		limiter: NewLimiter(maxTokens, refillRate),
-		ipLimits: make(map[string]*Limiter),
-		defaultLimit: NewLimiter(maxTokens, refillRate),
+	bl := &BucketLimiter{
+		limiter:       NewLimiter(maxTokens, refillRate),
+		ipLimits:      make(map[string]*limiterEntry),
+		defaultLimit:  NewLimiter(maxTokens, refillRate),
+		cleanupPeriod: 5 * time.Minute,
+		maxAge:        30 * time.Minute,
+	}
+	// Start cleanup goroutine
+	go bl.cleanup()
+	return bl
+}
+
+// cleanup periodically removes stale limiters
+func (bl *BucketLimiter) cleanup() {
+	ticker := time.NewTicker(bl.cleanupPeriod)
+	for range ticker.C {
+		bl.mu.Lock()
+		now := time.Now()
+		for ip, entry := range bl.ipLimits {
+			if now.Sub(entry.lastAccess) > bl.maxAge {
+				delete(bl.ipLimits, ip)
+			}
+		}
+		bl.mu.Unlock()
 	}
 }
 
@@ -117,11 +145,12 @@ func (bl *BucketLimiter) Middleware(next http.Handler) http.Handler {
 // getLimiter gets or creates a limiter for an IP
 func (bl *BucketLimiter) getLimiter(clientIP string) *Limiter {
 	bl.mu.RLock()
-	limiter, ok := bl.ipLimits[clientIP]
+	entry, ok := bl.ipLimits[clientIP]
 	bl.mu.RUnlock()
 
 	if ok {
-		return limiter
+		entry.lastAccess = time.Now()
+		return entry.limiter
 	}
 
 	// Create new limiter for this IP
@@ -129,15 +158,19 @@ func (bl *BucketLimiter) getLimiter(clientIP string) *Limiter {
 	defer bl.mu.Unlock()
 
 	// Double-check after acquiring write lock
-	limiter, ok = bl.ipLimits[clientIP]
+	entry, ok = bl.ipLimits[clientIP]
 	if ok {
-		return limiter
+		entry.lastAccess = time.Now()
+		return entry.limiter
 	}
 
-	limiter = NewLimiter(100, 50) // 100 requests, 50 per second
-	bl.ipLimits[clientIP] = limiter
+	entry = &limiterEntry{
+		limiter:    NewLimiter(100, 50), // 100 requests, 50 per second
+		lastAccess: time.Now(),
+	}
+	bl.ipLimits[clientIP] = entry
 
-	return limiter
+	return entry.limiter
 }
 
 // getClientIP extracts client IP from request

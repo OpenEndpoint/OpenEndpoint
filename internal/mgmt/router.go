@@ -15,6 +15,7 @@ import (
 	"github.com/openendpoint/openendpoint/internal/iam"
 	"github.com/openendpoint/openendpoint/internal/lifecycle"
 	"github.com/openendpoint/openendpoint/internal/replication"
+	"github.com/openendpoint/openendpoint/internal/settings"
 	"github.com/openendpoint/openendpoint/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -28,10 +29,15 @@ type Router struct {
 	lifecycleSvc   *lifecycle.Lifecycle
 	replicationSvc *replication.Replication
 	bucketConfig   *bucketconfig.Config
+	settingsMgr    *settings.Manager
 }
 
 // NewRouter creates a new management API router
-func NewRouter(engine *engine.ObjectService, logger *zap.SugaredLogger, config interface{}, clusterSvc *cluster.Cluster) *Router {
+func NewRouter(engine *engine.ObjectService, logger *zap.SugaredLogger, config interface{}, clusterSvc *cluster.Cluster, dataDir string) *Router {
+	// Create settings manager
+	settingsPath := dataDir + "/settings.json"
+	settingsMgr := settings.NewManager(settingsPath)
+
 	return &Router{
 		engine:          engine,
 		logger:          logger,
@@ -40,6 +46,7 @@ func NewRouter(engine *engine.ObjectService, logger *zap.SugaredLogger, config i
 		lifecycleSvc:   lifecycle.New(),
 		replicationSvc: replication.New(),
 		bucketConfig:   bucketconfig.New(),
+		settingsMgr:    settingsMgr,
 	}
 }
 
@@ -47,12 +54,18 @@ func NewRouter(engine *engine.ObjectService, logger *zap.SugaredLogger, config i
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Strip /_mgmt prefix
 	path := req.URL.Path
+	r.logger.Debugw("mgmt request", "original_path", path)
 	if strings.HasPrefix(path, "/_mgmt") {
 		path = strings.TrimPrefix(path, "/_mgmt")
+		// Ensure path has leading slash
+		if path != "" && path[0] != '/' {
+			path = "/" + path
+		}
 		if path == "" {
 			path = "/"
 		}
 	}
+	r.logger.Debugw("mgmt request after strip", "path", path)
 
 	// Route request
 	r.route(w, req, path)
@@ -60,6 +73,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) route(w http.ResponseWriter, req *http.Request, path string) {
 	switch {
+	// Replication route - use strings.HasPrefix
+	case strings.HasPrefix(path, "/replication/") && req.Method == http.MethodGet:
+		bucket := strings.TrimPrefix(path, "/replication/")
+		r.handleGetReplicationRules(w, req, bucket)
 	case req.Method == http.MethodGet && path == "/":
 		r.handleStatus(w, req)
 	case req.Method == http.MethodGet && path == "/health":
@@ -111,12 +128,37 @@ func (r *Router) route(w http.ResponseWriter, req *http.Request, path string) {
 		bucket := parts[0]
 		r.handleUploadObject(w, req, bucket)
 		return
+
+	// Bucket Config Routes (Versioning, CORS, Policy) - MUST come before general /buckets/{bucket}
+	case req.Method == http.MethodGet && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/versioning"):
+		bucket := strings.SplitN(path[9:], "/versioning", 2)[0]
+		r.handleGetVersioning(w, req, bucket)
+	case req.Method == http.MethodPut && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/versioning"):
+		bucket := strings.SplitN(path[9:], "/versioning", 2)[0]
+		r.handleSetVersioning(w, req, bucket)
+	case req.Method == http.MethodGet && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/cors"):
+		bucket := strings.SplitN(path[9:], "/cors", 2)[0]
+		r.handleGetCORS(w, req, bucket)
+	case req.Method == http.MethodPut && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/cors"):
+		bucket := strings.SplitN(path[9:], "/cors", 2)[0]
+		r.handleSetCORS(w, req, bucket)
+	case req.Method == http.MethodDelete && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/cors"):
+		bucket := strings.SplitN(path[9:], "/cors", 2)[0]
+		r.handleDeleteCORS(w, req, bucket)
+	case req.Method == http.MethodGet && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/policy"):
+		bucket := strings.SplitN(path[9:], "/policy", 2)[0]
+		r.handleGetBucketPolicy(w, req, bucket)
+	case req.Method == http.MethodPut && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/policy"):
+		bucket := strings.SplitN(path[9:], "/policy", 2)[0]
+		r.handleSetBucketPolicy(w, req, bucket)
+	case req.Method == http.MethodDelete && len(path) > 9 && path[:9] == "/buckets/" && strings.Contains(path[9:], "/policy"):
+		bucket := strings.SplitN(path[9:], "/policy", 2)[0]
+		r.handleDeleteBucketPolicy(w, req, bucket)
+
 	case req.Method == http.MethodGet && len(path) > 9 && path[:9] == "/buckets/":
 		// /buckets/{bucket} - general bucket info (must be after specific routes)
 		bucket := path[9:]
 		r.handleGetBucket(w, req, bucket)
-
-	// IAM Routes
 	case req.Method == http.MethodGet && path == "/iam/users":
 		r.handleListIAMUsers(w, req)
 	case req.Method == http.MethodPost && path == "/iam/users":
@@ -148,52 +190,27 @@ func (r *Router) route(w http.ResponseWriter, req *http.Request, path string) {
 		r.handleDeleteIAMPolicy(w, req, path[13:])
 
 	// Lifecycle Routes
-	case req.Method == http.MethodGet && len(path) > 11 && path[:11] == "/lifecycle/":
-		bucket := path[11:]
+	// Lifecycle Routes - use strings.HasPrefix
+	case strings.HasPrefix(path, "/lifecycle/") && req.Method == http.MethodGet:
+		bucket := strings.TrimPrefix(path, "/lifecycle/")
 		r.handleGetLifecycleRules(w, req, bucket)
-	case req.Method == http.MethodPut && len(path) > 11 && path[:11] == "/lifecycle/":
-		bucket := path[11:]
+	case strings.HasPrefix(path, "/lifecycle/") && req.Method == http.MethodPut:
+		bucket := strings.TrimPrefix(path, "/lifecycle/")
 		r.handleSetLifecycleRules(w, req, bucket)
-	case req.Method == http.MethodDelete && len(path) > 11 && path[:11] == "/lifecycle/":
-		bucket := path[11:]
+	case strings.HasPrefix(path, "/lifecycle/") && req.Method == http.MethodDelete:
+		bucket := strings.TrimPrefix(path, "/lifecycle/")
 		r.handleDeleteLifecycleRules(w, req, bucket)
 
-	// Replication Routes
-	case req.Method == http.MethodGet && len(path) > 12 && path[:12] == "/replication/":
-		bucket := path[12:]
+	// Replication Routes - use strings.HasPrefix
+	case strings.HasPrefix(path, "/replication/") && req.Method == http.MethodGet:
+		bucket := strings.TrimPrefix(path, "/replication/")
 		r.handleGetReplicationRules(w, req, bucket)
-	case req.Method == http.MethodPut && len(path) > 12 && path[:12] == "/replication/":
-		bucket := path[12:]
+	case strings.HasPrefix(path, "/replication/") && req.Method == http.MethodPut:
+		bucket := strings.TrimPrefix(path, "/replication/")
 		r.handleSetReplicationRules(w, req, bucket)
-	case req.Method == http.MethodDelete && len(path) > 12 && path[:12] == "/replication/":
-		bucket := path[12:]
+	case strings.HasPrefix(path, "/replication/") && req.Method == http.MethodDelete:
+		bucket := strings.TrimPrefix(path, "/replication/")
 		r.handleDeleteReplicationRules(w, req, bucket)
-
-	// Bucket Config Routes (Versioning, CORS, Policy)
-	case req.Method == http.MethodGet && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/versioning"):
-		bucket := strings.SplitN(path[10:], "/versioning", 2)[0]
-		r.handleGetVersioning(w, req, bucket)
-	case req.Method == http.MethodPut && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/versioning"):
-		bucket := strings.SplitN(path[10:], "/versioning", 2)[0]
-		r.handleSetVersioning(w, req, bucket)
-	case req.Method == http.MethodGet && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/cors"):
-		bucket := strings.SplitN(path[10:], "/cors", 2)[0]
-		r.handleGetCORS(w, req, bucket)
-	case req.Method == http.MethodPut && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/cors"):
-		bucket := strings.SplitN(path[10:], "/cors", 2)[0]
-		r.handleSetCORS(w, req, bucket)
-	case req.Method == http.MethodDelete && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/cors"):
-		bucket := strings.SplitN(path[10:], "/cors", 2)[0]
-		r.handleDeleteCORS(w, req, bucket)
-	case req.Method == http.MethodGet && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/policy"):
-		bucket := strings.SplitN(path[10:], "/policy", 2)[0]
-		r.handleGetBucketPolicy(w, req, bucket)
-	case req.Method == http.MethodPut && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/policy"):
-		bucket := strings.SplitN(path[10:], "/policy", 2)[0]
-		r.handleSetBucketPolicy(w, req, bucket)
-	case req.Method == http.MethodDelete && len(path) > 10 && path[:10] == "/buckets/" && strings.Contains(path[10:], "/policy"):
-		bucket := strings.SplitN(path[10:], "/policy", 2)[0]
-		r.handleDeleteBucketPolicy(w, req, bucket)
 
 	default:
 		r.writeError(w, http.StatusNotFound, "Not Found")
@@ -466,27 +483,30 @@ func (r *Router) handleVersion(w http.ResponseWriter, req *http.Request) {
 // handleSettings returns or updates settings
 func (r *Router) handleSettings(w http.ResponseWriter, req *http.Request) {
 	if req.Method == http.MethodGet {
-		// Return current settings
-		r.writeJSON(w, http.StatusOK, map[string]interface{}{
-			"region":                "us-east-1",
-			"storageClass":          "STANDARD",
-			"objectLock":            false,
-			"publicAccessBlock":     true,
-			"serverEncryption":      true,
-			"auditLogging":          true,
-		})
+		// Return current settings from manager
+		settings := r.settingsMgr.GetAll()
+		r.writeJSON(w, http.StatusOK, settings)
 		return
 	}
 
 	// POST - Update settings
-	var settings map[string]interface{}
-	if err := json.NewDecoder(req.Body).Decode(&settings); err != nil {
+	var newSettings map[string]interface{}
+	if err := json.NewDecoder(req.Body).Decode(&newSettings); err != nil {
 		r.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	// In a real implementation, these would be persisted
-	r.logger.Infow("Settings updated", "settings", settings)
+	// Update settings in manager
+	r.settingsMgr.SetMultiple(newSettings)
+
+	// Persist to file
+	if err := r.settingsMgr.Save(); err != nil {
+		r.logger.Warnw("failed to save settings", "error", err)
+		r.writeError(w, http.StatusInternalServerError, "Failed to save settings")
+		return
+	}
+
+	r.logger.Infow("Settings updated", "settings", newSettings)
 
 	r.writeJSON(w, http.StatusOK, map[string]string{
 		"status": "success",

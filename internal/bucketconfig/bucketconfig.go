@@ -1,6 +1,8 @@
 package bucketconfig
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -157,10 +159,6 @@ func (c *Config) SetVersioningConfig(bucket string, config *VersioningConfig) er
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, ok := c.buckets[bucket]; !ok {
-		return fmt.Errorf("bucket not found: %s", bucket)
-	}
-
 	config.ModifiedDate = time.Now()
 	c.versioning[bucket] = config
 	return nil
@@ -191,10 +189,6 @@ func (c *Config) SetCORSConfig(bucket string, config *CORSConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, ok := c.buckets[bucket]; !ok {
-		return fmt.Errorf("bucket not found: %s", bucket)
-	}
-
 	config.Bucket = bucket
 	config.ModifiedAt = time.Now()
 	c.cors[bucket] = config
@@ -224,10 +218,6 @@ func (c *Config) SetBucketPolicy(bucket string, policy *BucketPolicy) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, ok := c.buckets[bucket]; !ok {
-		return fmt.Errorf("bucket not found: %s", bucket)
-	}
-
 	policy.ModifiedDate = time.Now()
 	c.policies[bucket] = policy
 	return nil
@@ -255,10 +245,6 @@ func (c *Config) DeleteBucketPolicy(bucket string) error {
 func (c *Config) SetObjectLockConfig(bucket string, config *ObjectLockConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if _, ok := c.buckets[bucket]; !ok {
-		return fmt.Errorf("bucket not found: %s", bucket)
-	}
 
 	config.ModifiedDate = time.Now()
 	c.objectLock[bucket] = config
@@ -289,10 +275,6 @@ func (c *Config) IsObjectLockEnabled(bucket string) bool {
 func (c *Config) SetBucketTags(bucket string, tags map[string]string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if _, ok := c.buckets[bucket]; !ok {
-		return fmt.Errorf("bucket not found: %s", bucket)
-	}
 
 	c.tags[bucket] = tags
 
@@ -426,13 +408,12 @@ func GenerateVersionID() string {
 }
 
 func generateRandomID() string {
-	const hexChars = "0123456789abcdef"
-	bytes := make([]byte, 8)
-	for i := range bytes {
-		bytes[i] = hexChars[time.Now().UnixNano()%16]
-		time.Sleep(time.Nanosecond)
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("%08x", time.Now().UnixNano()&0xFFFFFFFF)
 	}
-	return string(bytes)
+	return hex.EncodeToString(b)
 }
 
 // GetPolicyJSON returns policy as JSON string

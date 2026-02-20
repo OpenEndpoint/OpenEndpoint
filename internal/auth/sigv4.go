@@ -112,7 +112,6 @@ func (a *Auth) verifySigV4(req *http.Request, authHeader string) error {
 
 	// Calculate signature
 	signature := a.calculateSignature(cred.SecretKey, dateStamp, region, service, stringToSign)
-	_ = signature // Used for future signature verification
 
 	// Get provided signature
 	providedSig := strings.Split(parts[1], "=")
@@ -120,8 +119,11 @@ func (a *Auth) verifySigV4(req *http.Request, authHeader string) error {
 		return fmt.Errorf("missing signature")
 	}
 
-	// For now, simplified verification
-	// In production, you'd need to compare the full signed header list
+	// Compare signatures using constant-time comparison to prevent timing attacks
+	if !hmac.Equal([]byte(signature), []byte(providedSig[len(providedSig)-1])) {
+		return fmt.Errorf("signature mismatch")
+	}
+
 	return nil
 }
 
@@ -151,8 +153,8 @@ func (a *Auth) verifySigV2(req *http.Request, authHeader string) error {
 	stringToSign := a.buildStringToSignV2(req)
 	expectedSig := a.calculateSignatureV2(cred.SecretKey, stringToSign)
 
-	// Compare signatures
-	if providedSig != expectedSig {
+	// Compare signatures using constant-time comparison to prevent timing attacks
+	if !hmac.Equal([]byte(expectedSig), []byte(providedSig)) {
 		return fmt.Errorf("signature mismatch")
 	}
 
@@ -496,10 +498,23 @@ func (a *Auth) VerifyPresignedURL(req *http.Request) (bucket, key string, err er
 		return "", "", fmt.Errorf("failed to decode key: %w", err)
 	}
 
-	// In a full implementation, we would verify the signature here
-	// For now, we just validate the parameters and return bucket/key
-	_ = cred.SecretKey
-	_ = signature
+	// Build string to sign for presigned URL verification
+	dateStamp := parts[1] // YYYYMMDD
+	region := parts[2]
+	service := parts[3]
+
+	// Build canonical request for presigned URL
+	signedHeaders := query.Get("X-Amz-SignedHeaders")
+	canonicalRequest := a.buildCanonicalRequest(req, signedHeaders)
+	stringToSign := a.buildStringToSign(req, canonicalRequest, dateStamp, region, service)
+
+	// Calculate expected signature
+	expectedSignature := a.calculateSignature(cred.SecretKey, dateStamp, region, service, stringToSign)
+
+	// Compare signatures using constant-time comparison
+	if !hmac.Equal([]byte(expectedSignature), []byte(signature)) {
+		return "", "", fmt.Errorf("presigned URL signature mismatch")
+	}
 
 	return bucket, key, nil
 }

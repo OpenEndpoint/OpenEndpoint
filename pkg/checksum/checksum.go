@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"hash"
+	"hash/crc32"
 	"io"
 )
 
@@ -31,6 +32,11 @@ func SHA512() hash.Hash {
 	return sha512.New()
 }
 
+// CRC32 creates a CRC32 hash using IEEE polynomial
+func CRC32() hash.Hash {
+	return crc32.NewIEEE()
+}
+
 // HashBytes calculates hash of data using the specified algorithm
 func HashBytes(data []byte, algorithm string) (string, error) {
 	var h hash.Hash
@@ -43,6 +49,8 @@ func HashBytes(data []byte, algorithm string) (string, error) {
 		h = sha256.New()
 	case "sha512", "sha-512":
 		h = sha512.New()
+	case "crc32":
+		h = crc32.NewIEEE()
 	default:
 		h = sha256.New()
 	}
@@ -72,6 +80,8 @@ func HashToBase64(data []byte, algorithm string) (string, error) {
 		h = sha256.New()
 	case "sha512", "sha-512":
 		h = sha512.New()
+	case "crc32":
+		h = crc32.NewIEEE()
 	default:
 		h = sha256.New()
 	}
@@ -97,11 +107,17 @@ func VerifyETag(etag, computedHash string) bool {
 	return etag == computedHash
 }
 
-// CRC32 is not implemented - using xxhash or similar would require external package
-// For now, use SHA256 as a fallback
-func CRC32(data []byte) uint32 {
-	// Simple implementation would require external package
-	// Return hash of first 4 bytes as placeholder
-	h := sha256.Sum256(data)
-	return uint32(h[0]) | uint32(h[1])<<8 | uint32(h[2])<<16 | uint32(h[3])<<24
+// CRC32Checksum computes CRC32 checksum of data
+func CRC32Checksum(data []byte) uint32 {
+	return crc32.ChecksumIEEE(data)
+}
+
+// CRC32HashString returns CRC32 checksum as hex string
+func CRC32HashString(data []byte) string {
+	checksum := CRC32Checksum(data)
+	return hex.EncodeToString([]byte{
+		byte(checksum >> 24),
+		byte(checksum >> 16),
+		byte(checksum >> 8),
+		byte(checksum)})
 }

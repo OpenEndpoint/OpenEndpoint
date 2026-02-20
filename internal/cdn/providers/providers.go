@@ -61,7 +61,7 @@ type DistributionInfo struct {
 	ID           string
 	Status       string // "Deployed", "InProgress"
 	DomainName   string
-	arn         string
+	ARN          string
 	LastModified time.Time
 }
 
@@ -72,8 +72,8 @@ type CloudFlareProvider struct {
 	ZoneID   string
 }
 
-// NewCloudFlure creates a new Cloudflare provider
-func NewCloudFlure(apiKey, email, zoneID string) *CloudFlareProvider {
+// NewCloudFlare creates a new Cloudflare provider
+func NewCloudFlare(apiKey, email, zoneID string) *CloudFlareProvider {
 	return &CloudFlareProvider{
 		APIKey:   apiKey,
 		APIEmail: email,
@@ -86,23 +86,23 @@ func (p *CloudFlareProvider) CreateDistribution(ctx context.Context, config Dist
 	return "stub-distribution-id", nil
 }
 
-func (p *CloudFlureProvider) GetDistribution(ctx context.Context, distributionID string) (*DistributionInfo, error) {
+func (p *CloudFlareProvider) GetDistribution(ctx context.Context, distributionID string) (*DistributionInfo, error) {
 	return &DistributionInfo{
 		ID:         distributionID,
 		Status:     "Deployed",
-		DomainName: config.Domain,
+		DomainName: "example.cloudfront.net",
 	}, nil
 }
 
-func (p *CloudFlureProvider) DeleteDistribution(ctx context.Context, distributionID string) error {
+func (p *CloudFlareProvider) DeleteDistribution(ctx context.Context, distributionID string) error {
 	return nil
 }
 
-func (p *CloudFlureProvider) InvalidateCache(ctx context.Context, distributionID string, paths []string) (string, error) {
+func (p *CloudFlareProvider) InvalidateCache(ctx context.Context, distributionID string, paths []string) (string, error) {
 	return "stub-invalidation-id", nil
 }
 
-func (p *CloudFlureProvider) GetInvalidationStatus(ctx context.Context, distributionID, invalidationID string) (string, error) {
+func (p *CloudFlareProvider) GetInvalidationStatus(ctx context.Context, distributionID, invalidationID string) (string, error) {
 	return "Complete", nil
 }
 
@@ -131,7 +131,7 @@ func (p *AWSCloudFrontProvider) GetDistribution(ctx context.Context, distributio
 	return &DistributionInfo{
 		ID:         distributionID,
 		Status:     "Deployed",
-		DomainName: config.Domain,
+		DomainName: "example.cloudfront.net",
 	}, nil
 }
 

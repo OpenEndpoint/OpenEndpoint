@@ -1,6 +1,8 @@
 package lifecycle
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -394,7 +396,12 @@ type ObjectTransition struct {
 
 // generateRuleID generates a unique rule ID
 func generateRuleID() string {
-	return fmt.Sprintf("rule-%d", time.Now().UnixNano())
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp if crypto/rand fails
+		return fmt.Sprintf("rule-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("rule-%s", hex.EncodeToString(b))
 }
 
 // ToJSON returns lifecycle rules as JSON

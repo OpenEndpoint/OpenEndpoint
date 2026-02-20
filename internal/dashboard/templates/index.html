@@ -1099,6 +1099,42 @@
         </div>
     </div>
 
+    <!-- Bucket Settings Modal -->
+    <div id="bucket-settings-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-xl font-semibold text-white">Bucket Settings</h3>
+                <button onclick="document.getElementById('bucket-settings-modal').classList.add('hidden')" class="text-gray-500 hover:text-white">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+            <input type="hidden" id="settings-bucket" value="">
+            <div class="space-y-4">
+                <div class="bg-gray-800/50 rounded-lg p-4 mb-4">
+                    <span class="text-gray-400 text-sm">Bucket:</span>
+                    <span id="settings-bucket-name" class="text-white font-medium ml-2"></span>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Versioning</label>
+                    <select id="versioning-status" class="select-field w-full">
+                        <option value="Disabled">Disabled</option>
+                        <option value="Enabled">Enabled</option>
+                        <option value="Suspended">Suspended</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Versioning keeps multiple versions of objects</p>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Default Encryption</label>
+                    <select class="select-field w-full" disabled>
+                        <option>AES-256</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Server-side encryption is always enabled</p>
+                </div>
+                <button onclick="saveBucketSettings()" class="btn btn-primary w-full mt-4">Save Settings</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script>
         lucide.createIcons();
@@ -1251,9 +1287,9 @@
                             <td class="text-gray-500">${b.Created ? new Date(b.Created).toLocaleDateString() : '-'}</td>
                             <td>
                                 <div class="flex items-center gap-1">
-                                    <button class="p-2 hover:bg-blue-500/20 rounded-lg text-blue-400"><i data-lucide="folder-open" class="w-4 h-4"></i></button>
-                                    <button class="p-2 hover:bg-gray-700 rounded-lg text-gray-400"><i data-lucide="settings" class="w-4 h-4"></i></button>
-                                    <button onclick="deleteBucket('${b.Name || b.name}')" class="p-2 hover:bg-red-500/20 rounded-lg text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                    <button onclick="viewBucket('${b.Name || b.name}')" class="p-2 hover:bg-blue-500/20 rounded-lg text-blue-400" title="Browse Objects"><i data-lucide="folder-open" class="w-4 h-4"></i></button>
+                                    <button onclick="showBucketSettings('${b.Name || b.name}')" class="p-2 hover:bg-gray-700 rounded-lg text-gray-400" title="Settings"><i data-lucide="settings" class="w-4 h-4"></i></button>
+                                    <button onclick="deleteBucket('${b.Name || b.name}')" class="p-2 hover:bg-red-500/20 rounded-lg text-red-400" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                                 </div>
                             </td>
                         </tr>
@@ -1262,6 +1298,56 @@
                 }
             } catch (error) {
                 console.error('All buckets error:', error);
+            }
+        }
+
+        function viewBucket(bucketName) {
+            document.getElementById('object-bucket-select').value = bucketName;
+            switchView('objects');
+            loadObjects();
+        }
+
+        function showBucketSettings(bucketName) {
+            document.getElementById('settings-bucket-name').textContent = bucketName;
+            document.getElementById('settings-bucket').value = bucketName;
+            loadBucketVersioning(bucketName);
+            document.getElementById('bucket-settings-modal').classList.remove('hidden');
+        }
+
+        async function loadBucketVersioning(bucket) {
+            try {
+                const response = await fetch('/_mgmt/buckets/' + bucket + '/versioning');
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('versioning-status').value = data.status || 'Disabled';
+                } else {
+                    document.getElementById('versioning-status').value = 'Disabled';
+                }
+            } catch (e) {
+                document.getElementById('versioning-status').value = 'Disabled';
+            }
+        }
+
+        async function saveBucketSettings() {
+            const bucket = document.getElementById('settings-bucket').value;
+            const versioning = document.getElementById('versioning-status').value;
+
+            try {
+                const response = await fetch('/_mgmt/buckets/' + bucket + '/versioning', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: versioning })
+                });
+
+                if (response.ok) {
+                    showToast('Bucket settings saved', 'success');
+                    document.getElementById('bucket-settings-modal').classList.add('hidden');
+                    loadAllBuckets();
+                } else {
+                    showToast('Failed to save settings', 'error');
+                }
+            } catch (error) {
+                showToast('Error saving settings', 'error');
             }
         }
 
@@ -1429,7 +1515,7 @@
                 const buckets = data.buckets || [];
                 const select = document.getElementById('object-bucket-select');
                 select.innerHTML = '<option value="">Select a bucket</option>' +
-                    buckets.map(b => `<option value="${b.Name || b.name}">${b.Name || b.name}</option>`).join('');
+                    buckets.map(b => `<option value="${escapeHtml(b.Name || b.name)}">${escapeHtml(b.Name || b.name)}</option>`).join('');
             } catch (error) {
                 console.error('Error loading buckets:', error);
             }
@@ -1504,7 +1590,7 @@
                 lucide.createIcons();
 
             } catch (error) {
-                container.innerHTML = `<p class="text-red-400 text-center py-12">Error: ${error.message}</p>`;
+                container.innerHTML = `<p class="text-red-400 text-center py-12">Error: ${escapeHtml(error.message)}</p>`;
             }
         }
 
@@ -1541,7 +1627,7 @@
                     lucide.createIcons();
                 }
             } catch (error) {
-                content.innerHTML = `<p class="text-red-400 text-center py-12">Error: ${error.message}</p>`;
+                content.innerHTML = `<p class="text-red-400 text-center py-12">Error: ${escapeHtml(error.message)}</p>`;
             }
         }
 
@@ -1656,7 +1742,7 @@
                 const data = await response.json();
                 replicationBuckets = data.buckets || [];
                 bucketSelect.innerHTML = '<option value="">Select a bucket</option>' +
-                    replicationBuckets.map(b => `<option value="${b.Name || b.name}">${b.Name || b.name}</option>`).join('');
+                    replicationBuckets.map(b => `<option value="${escapeHtml(b.Name || b.name)}">${escapeHtml(b.Name || b.name)}</option>`).join('');
             } catch (error) {
                 console.error('Error loading buckets:', error);
             }
@@ -1775,7 +1861,7 @@
                 const data = await response.json();
                 const buckets = data.buckets || [];
                 bucketSelect.innerHTML = '<option value="">Select a bucket</option>' +
-                    buckets.map(b => `<option value="${b.Name || b.name}">${b.Name || b.name}</option>`).join('');
+                    buckets.map(b => `<option value="${escapeHtml(b.Name || b.name)}">${escapeHtml(b.Name || b.name)}</option>`).join('');
             } catch (error) {
                 console.error('Error loading buckets:', error);
             }

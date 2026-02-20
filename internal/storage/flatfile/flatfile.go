@@ -53,28 +53,31 @@ type FlatFile struct {
 
 // cache is a simple in-memory cache for read/write optimization
 type cache struct {
-	mu       sync.RWMutex
-	data     map[string][]byte
-	maxSize  int
-	hits     int64
-	misses   int64
+	mu          sync.RWMutex
+	data        map[string][]byte
+	accessTime  map[string]time.Time
+	maxSize     int
+	hits        int64
+	misses      int64
 }
 
 // newCache creates a new cache
 func newCache(maxSize int) *cache {
 	return &cache{
-		data:    make(map[string][]byte),
-		maxSize: maxSize,
+		data:       make(map[string][]byte),
+		accessTime: make(map[string]time.Time),
+		maxSize:    maxSize,
 	}
 }
 
 // get retrieves a value from cache
 func (c *cache) get(key string) ([]byte, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	val, ok := c.data[key]
 	if ok {
 		c.hits++
+		c.accessTime[key] = time.Now()
 	} else {
 		c.misses++
 	}
@@ -85,15 +88,26 @@ func (c *cache) get(key string) ([]byte, bool) {
 func (c *cache) set(key string, value []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Simple eviction if over max size
+	// Simple LRU eviction if over max size
 	if len(c.data) >= c.maxSize {
-		// Remove oldest entry (simplified)
-		for k := range c.data {
-			delete(c.data, k)
-			break
+		// Find and remove oldest entry (LRU)
+		var oldestKey string
+		var oldestTime time.Time
+		first := true
+		for k, t := range c.accessTime {
+			if first || t.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = t
+				first = false
+			}
+		}
+		if oldestKey != "" {
+			delete(c.data, oldestKey)
+			delete(c.accessTime, oldestKey)
 		}
 	}
 	c.data[key] = value
+	c.accessTime[key] = time.Now()
 }
 
 // invalidate removes a key from cache
@@ -101,6 +115,7 @@ func (c *cache) invalidate(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.data, key)
+	delete(c.accessTime, key)
 }
 
 // New creates a new flat file storage backend
@@ -139,26 +154,45 @@ func New(rootDir string) (*FlatFile, error) {
 
 // bucketPath returns the filesystem path for a bucket
 func (f *FlatFile) bucketPath(bucket string) string {
-	return filepath.Join(f.rootDir, "buckets", bucket)
+	// Sanitize bucket name to prevent path traversal
+	safeBucket := sanitizePathComponent(bucket)
+	return filepath.Join(f.rootDir, "buckets", safeBucket)
 }
 
 // objectPath returns the filesystem path for an object
 func (f *FlatFile) objectPath(bucket, key string) string {
+	// Sanitize inputs to prevent path traversal
+	safeBucket := sanitizePathComponent(bucket)
 	// Escape the key to be safe for filesystem
 	safeKey := escapePath(key)
-	return filepath.Join(f.rootDir, "buckets", bucket, safeKey)
+	return filepath.Join(f.rootDir, "buckets", safeBucket, safeKey)
 }
 
-// unescapePath reverses escapePath
-func unescapePath(path string) string {
-	// Simple implementation - in production you'd have proper escaping
-	return strings.ReplaceAll(path, "__ESCAPE__", "/")
+// sanitizePathComponent removes potentially dangerous characters from a path component
+func sanitizePathComponent(s string) string {
+	// Remove path traversal attempts
+	s = strings.ReplaceAll(s, "..", "")
+	s = strings.ReplaceAll(s, "/", "")
+	s = strings.ReplaceAll(s, "\\", "")
+	return s
 }
 
 // escapePath makes a key safe for filesystem
 func escapePath(key string) string {
+	// First sanitize for path traversal
+	key = strings.ReplaceAll(key, "..", "")
 	// Replace / with __ESCAPE__ to preserve directory structure
-	return strings.ReplaceAll(key, "/", "__ESCAPE__")
+	key = strings.ReplaceAll(key, "/", "__ESCAPE__")
+	// Also escape backslashes
+	key = strings.ReplaceAll(key, "\\", "__BSLASH__")
+	return key
+}
+
+// unescapePath reverses escapePath
+func unescapePath(path string) string {
+	path = strings.ReplaceAll(path, "__BSLASH__", "\\")
+	path = strings.ReplaceAll(path, "__ESCAPE__", "/")
+	return path
 }
 
 func (f *FlatFile) Put(ctx context.Context, bucket, key string, data io.Reader, size int64, opts storage.PutOptions) error {
@@ -212,9 +246,18 @@ func (f *FlatFile) Put(ctx context.Context, bucket, key string, data io.Reader, 
 		return fmt.Errorf("size mismatch: expected %d, got %d", size, written)
 	}
 
+	// Calculate and store hash for ETag
+	hash := hex.EncodeToString(hasher.Sum(nil))
+	hashPath := objectPath + ".hash"
+	if err := os.WriteFile(hashPath, []byte(hash), 0644); err != nil {
+		// Log warning but don't fail - hash is optional for ETag
+		f.logger.Warnw("failed to write hash file", "error", err)
+	}
+
 	// Rename to final location (atomic on same filesystem)
 	if err := os.Rename(tmpPath, objectPath); err != nil {
 		os.Remove(tmpPath)
+		os.Remove(hashPath)
 		diskIOErrors.WithLabelValues("put_rename").Inc()
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
@@ -293,6 +336,10 @@ func (f *FlatFile) Delete(ctx context.Context, bucket, key string) error {
 		return fmt.Errorf("failed to delete object: %w", err)
 	}
 
+	// Also remove hash file if exists
+	hashPath := objectPath + ".hash"
+	os.Remove(hashPath) // Ignore error - file may not exist
+
 	// Try to clean up empty parent directories
 	parentDir := filepath.Dir(objectPath)
 	f.cleanupEmptyDirs(parentDir)
@@ -330,8 +377,16 @@ func (f *FlatFile) Head(ctx context.Context, bucket, key string) (*storage.Objec
 		return nil, fmt.Errorf("failed to stat object: %w", err)
 	}
 
-	// Calculate etag
-	etag := fmt.Sprintf("\"%s\"", hex.EncodeToString([]byte(info.Name())))
+	// Try to read stored hash for ETag (preferred)
+	var etag string
+	hashPath := objectPath + ".hash"
+	if hashData, err := os.ReadFile(hashPath); err == nil && len(hashData) > 0 {
+		etag = fmt.Sprintf("\"%s\"", strings.TrimSpace(string(hashData)))
+	} else {
+		// Fallback to size + modtime hash if stored hash not available
+		etagData := fmt.Sprintf("%d-%d", info.Size(), info.ModTime().UnixNano())
+		etag = fmt.Sprintf("\"%x\"", sha256.Sum256([]byte(etagData)))
+	}
 
 	return &storage.ObjectInfo{
 		Key:          key,
@@ -521,6 +576,45 @@ func (f *FlatFile) ListBuckets(ctx context.Context) ([]storage.BucketInfo, error
 
 func (f *FlatFile) Close() error {
 	return nil
+}
+
+// ComputeStorageMetrics computes total storage size and object count
+func (f *FlatFile) ComputeStorageMetrics() (int64, int64, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	bucketsDir := filepath.Join(f.rootDir, "buckets")
+
+	entries, err := os.ReadDir(bucketsDir)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read buckets: %w", err)
+	}
+
+	var totalBytes int64
+	var totalObjects int64
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		bucketDir := filepath.Join(bucketsDir, entry.Name())
+		err := filepath.Walk(bucketDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !info.IsDir() {
+				totalBytes += info.Size()
+				totalObjects++
+			}
+			return nil
+		})
+		if err != nil {
+			continue
+		}
+	}
+
+	return totalBytes, totalObjects, nil
 }
 
 // NewTestBackend creates a simple in-memory backend for testing

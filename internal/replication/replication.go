@@ -1,6 +1,8 @@
 package replication
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -431,7 +433,11 @@ func (r *Replication) GetTotalReplicatedBytes() int64 {
 
 // generateRuleID generates a unique rule ID
 func generateRuleID() string {
-	return fmt.Sprintf("replication-rule-%d", time.Now().UnixNano())
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("replication-rule-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("replication-rule-%s", hex.EncodeToString(b))
 }
 
 // ToJSON returns replication rules as JSON

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -131,8 +132,11 @@ func (s *Store) RemoveObject(bucket, key string) error {
 	for fp, info := range s.fingerprints {
 		for i, ref := range info.Objects {
 			if ref.Bucket == bucket && ref.Key == key {
-				// Remove from slice
-				info.Objects = append(info.Objects[:i], info.Objects[i+1:]...)
+				// Create new slice without the element to avoid potential issues
+				newObjects := make([]ObjectRef, 0, len(info.Objects)-1)
+				newObjects = append(newObjects, info.Objects[:i]...)
+				newObjects = append(newObjects, info.Objects[i+1:]...)
+				info.Objects = newObjects
 				info.RefCount--
 
 				// If no more references, remove fingerprint
@@ -233,7 +237,7 @@ type WriteResult struct {
 
 // nowUnix returns current Unix timestamp
 func nowUnix() int64 {
-	return 0 // Placeholder - would use time.Now().Unix()
+	return time.Now().Unix()
 }
 
 // ChunkedFingerprinter fingerprints data using variable chunking
@@ -344,10 +348,14 @@ type DeduplicationWriter struct {
 	buf       *bytes.Buffer
 	threshold int
 	logger    *zap.Logger
+	ctx       context.Context
 }
 
 // NewDeduplicationWriter creates a new deduplication writer
-func NewDeduplicationWriter(w io.Writer, dedup *Deduplicator, bucket, key string, threshold int, logger *zap.Logger) *DeduplicationWriter {
+func NewDeduplicationWriter(ctx context.Context, w io.Writer, dedup *Deduplicator, bucket, key string, threshold int, logger *zap.Logger) *DeduplicationWriter {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &DeduplicationWriter{
 		writer:    w,
 		dedup:     dedup,
@@ -356,6 +364,7 @@ func NewDeduplicationWriter(w io.Writer, dedup *Deduplicator, bucket, key string
 		buf:       new(bytes.Buffer),
 		threshold: threshold,
 		logger:    logger,
+		ctx:       ctx,
 	}
 }
 
@@ -366,7 +375,7 @@ func (d *DeduplicationWriter) Write(p []byte) (int, error) {
 	// When buffer exceeds threshold, deduplicate
 	if d.buf.Len() >= d.threshold {
 		data := d.buf.Bytes()
-		result, err := d.dedup.ProcessWrite(context.Background(), d.bucket, d.key, data)
+		result, err := d.dedup.ProcessWrite(d.ctx, d.bucket, d.key, data)
 		if err != nil {
 			return 0, err
 		}
@@ -387,7 +396,7 @@ func (d *DeduplicationWriter) Close() error {
 	// Process remaining data
 	if d.buf.Len() > 0 {
 		data := d.buf.Bytes()
-		_, err := d.dedup.ProcessWrite(context.Background(), d.bucket, d.key, data)
+		_, err := d.dedup.ProcessWrite(d.ctx, d.bucket, d.key, data)
 		if err != nil {
 			return err
 		}

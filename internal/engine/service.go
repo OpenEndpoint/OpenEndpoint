@@ -19,6 +19,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// MaxUploadSize is the maximum size for object uploads (5GB by default, matching S3)
+const MaxUploadSize = 5 * 1024 * 1024 * 1024
+
 // ObjectService provides the core object storage operations
 type ObjectService struct {
 	storage   storage.StorageBackend
@@ -48,6 +51,14 @@ func (s *ObjectService) Close() error {
 	return nil
 }
 
+// ComputeStorageMetrics computes total storage size and object count from storage
+func (s *ObjectService) ComputeStorageMetrics() (int64, int64, error) {
+	if s.storage != nil {
+		return s.storage.ComputeStorageMetrics()
+	}
+	return 0, 0, nil
+}
+
 // PutObject stores an object
 func (s *ObjectService) PutObject(ctx context.Context, bucket, key string, data io.Reader, opts PutObjectOptions) (*ObjectResult, error) {
 	// Lock the object
@@ -60,9 +71,13 @@ func (s *ObjectService) PutObject(ctx context.Context, bucket, key string, data 
 	}
 
 	// Read all data into memory first (required for hash calculation and storage)
-	dataBytes, err := io.ReadAll(data)
+	// Use LimitReader to prevent memory exhaustion from malicious large uploads
+	dataBytes, err := io.ReadAll(io.LimitReader(data, MaxUploadSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read data: %w", err)
+	}
+	if int64(len(dataBytes)) > MaxUploadSize {
+		return nil, fmt.Errorf("object size exceeds maximum allowed size (%d bytes)", MaxUploadSize)
 	}
 
 	// Calculate size and hash
@@ -560,6 +575,15 @@ func (s *ObjectService) GetBucket(ctx context.Context, bucket string) (*metadata
 	return s.metadata.GetBucket(ctx, bucket)
 }
 
+// HeadBucket checks if bucket exists (for S3 HEAD bucket operation)
+func (s *ObjectService) HeadBucket(ctx context.Context, bucket string) error {
+	_, err := s.metadata.GetBucket(ctx, bucket)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // CreateMultipartUpload initiates a multipart upload
 func (s *ObjectService) CreateMultipartUpload(ctx context.Context, bucket, key string, opts PutObjectOptions) (*CreateMultipartUploadResult, error) {
 	// Generate upload ID
@@ -594,8 +618,12 @@ func (s *ObjectService) UploadPart(ctx context.Context, bucket, key, uploadID st
 		return nil, fmt.Errorf("failed to read data: %w", err)
 	}
 
-	// Reset reader
-	data.(io.Seeker).Seek(0, io.SeekStart)
+	// Reset reader if it implements Seeker
+	if seeker, ok := data.(io.Seeker); ok {
+		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+			s.logger.Warn("failed to seek reader", zap.Error(err))
+		}
+	}
 
 	// Generate ETag
 	etag := fmt.Sprintf("\"%s\"", hex.EncodeToString(hasher.Sum(nil)))
@@ -658,7 +686,7 @@ func (s *ObjectService) CompleteMultipartUpload(ctx context.Context, bucket, key
 		if err != nil {
 			return nil, fmt.Errorf("failed to read part %d: %w", p.PartNumber, err)
 		}
-		data, err := io.ReadAll(reader)
+		data, err := io.ReadAll(io.LimitReader(reader, MaxUploadSize+1))
 		reader.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read part data: %w", err)
@@ -701,7 +729,9 @@ func (s *ObjectService) CompleteMultipartUpload(ctx context.Context, bucket, key
 	// Clean up part files from storage
 	for _, p := range partMetas {
 		partKey := fmt.Sprintf("%s/%s/%s/%d", bucket, key, uploadID, p.PartNumber)
-		s.storage.Delete(ctx, bucket, partKey)
+		if err := s.storage.Delete(ctx, bucket, partKey); err != nil {
+			s.logger.Warnw("failed to delete part file", "partKey", partKey, "error", err)
+		}
 	}
 
 	return &ObjectResult{

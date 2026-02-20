@@ -23,6 +23,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// maxRequestBodySize limits request body size for XML/JSON parsing (10MB)
+const maxRequestBodySize = 10 * 1024 * 1024
+
 // Router handles S3 API requests
 type Router struct {
 	engine        *engine.ObjectService
@@ -48,6 +51,16 @@ func NewRouter(engine *engine.ObjectService, auth *auth.Auth, logger *zap.Sugare
 		config:        cfg,
 		selectService: s3select.NewSelectService(selectLogger),
 	}
+}
+
+// readLimitedBody reads request body with size limit to prevent memory exhaustion
+func readLimitedBody(body io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(body, maxRequestBodySize+1))
+}
+
+// isBodyTooLarge checks if the body exceeded the size limit
+func isBodyTooLarge(data []byte) bool {
+	return len(data) > maxRequestBodySize
 }
 
 // ServeHTTP handles S3 API requests
@@ -291,6 +304,8 @@ func (r *Router) route(w http.ResponseWriter, req *http.Request) {
 	case http.MethodHead:
 		if bucket != "" && key != "" {
 			r.handleHeadObject(w, req, bucket, key)
+		} else if bucket != "" {
+			r.handleHeadBucket(w, req, bucket)
 		} else {
 			r.writeError(w, ErrNotImplemented)
 		}
@@ -587,6 +602,26 @@ func (r *Router) handleHeadObject(w http.ResponseWriter, req *http.Request, buck
 	w.WriteHeader(http.StatusOK)
 
 	s3RequestsTotal.WithLabelValues("HeadObject", "200").Inc()
+}
+
+// handleHeadBucket handles HeadBucket - checks if bucket exists
+func (r *Router) handleHeadBucket(w http.ResponseWriter, req *http.Request, bucket string) {
+	ctx := req.Context()
+
+	// Check if bucket exists
+	err := r.engine.HeadBucket(ctx, bucket)
+	if err != nil {
+		r.logger.Warnw("failed to head bucket", "bucket", bucket, "error", err)
+		r.writeError(w, ErrNoSuchBucket)
+		return
+	}
+
+	// Set common headers
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("x-amz-bucket-region", "us-east-1")
+	w.WriteHeader(http.StatusOK)
+
+	s3RequestsTotal.WithLabelValues("HeadBucket", "200").Inc()
 }
 
 // handlePutObject handles PutObject
@@ -1003,8 +1038,8 @@ func (r *Router) handleGetBucketVersioning(w http.ResponseWriter, req *http.Requ
 func (r *Router) handlePutBucketVersioning(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1079,8 +1114,8 @@ func (r *Router) handleGetBucketLifecycle(w http.ResponseWriter, req *http.Reque
 func (r *Router) handlePutBucketLifecycle(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1147,8 +1182,8 @@ func (r *Router) handleGetBucketCors(w http.ResponseWriter, req *http.Request, b
 func (r *Router) handlePutBucketCors(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1204,8 +1239,8 @@ func (r *Router) handleGetBucketPolicy(w http.ResponseWriter, req *http.Request,
 func (r *Router) handlePutBucketPolicy(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1256,8 +1291,8 @@ func (r *Router) handleGetBucketEncryption(w http.ResponseWriter, req *http.Requ
 func (r *Router) handlePutBucketEncryption(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1329,8 +1364,8 @@ func (r *Router) handleGetBucketTags(w http.ResponseWriter, req *http.Request, b
 func (r *Router) handlePutBucketTags(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1397,8 +1432,8 @@ func (r *Router) handleGetObjectLock(w http.ResponseWriter, req *http.Request, b
 func (r *Router) handlePutObjectLock(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1464,8 +1499,8 @@ func (r *Router) handleGetPublicAccessBlock(w http.ResponseWriter, req *http.Req
 func (r *Router) handlePutPublicAccessBlock(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1515,8 +1550,8 @@ func (r *Router) handleGetBucketAccelerate(w http.ResponseWriter, req *http.Requ
 func (r *Router) handlePutBucketAccelerate(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1606,8 +1641,8 @@ func (r *Router) handlePutBucketInventory(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1714,8 +1749,8 @@ func (r *Router) handlePutBucketAnalytics(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -1789,8 +1824,8 @@ func (r *Router) handleGetBucketWebsite(w http.ResponseWriter, req *http.Request
 func (r *Router) handlePutBucketWebsite(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -2610,8 +2645,8 @@ func (r *Router) handleGetBucketNotification(w http.ResponseWriter, req *http.Re
 func (r *Router) handlePutBucketNotification(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -2661,8 +2696,8 @@ func (r *Router) handleGetBucketLogging(w http.ResponseWriter, req *http.Request
 func (r *Router) handlePutBucketLogging(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -2730,8 +2765,8 @@ func (r *Router) handleGetPresignedURL(w http.ResponseWriter, req *http.Request,
 func (r *Router) handlePutPresignedURL(w http.ResponseWriter, req *http.Request, bucket, key string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
@@ -2774,8 +2809,8 @@ func (r *Router) handlePutPresignedURL(w http.ResponseWriter, req *http.Request,
 func (r *Router) handleDeleteObjects(w http.ResponseWriter, req *http.Request, bucket string) {
 	ctx := req.Context()
 
-	// Read body
-	body, err := io.ReadAll(req.Body)
+	// Read body with size limit
+	body, err := readLimitedBody(req.Body)
 	if err != nil {
 		r.logger.Warnw("failed to read request body", "error", err)
 		r.writeError(w, ErrInternal)
