@@ -113,6 +113,7 @@ func (s *ObjectService) PutObject(ctx context.Context, bucket, key string, data 
 	start := time.Now()
 	telemetry.IncStorageBytes(size)
 	telemetry.IncBucketObjects(bucket)
+	telemetry.IncTotalObjects()
 	telemetry.IncOperation("PutObject")
 	telemetry.OperationsTotal.WithLabelValues("PutObject", "success").Inc()
 	telemetry.OperationDuration.WithLabelValues("PutObject", "success").Observe(time.Since(start).Seconds())
@@ -277,6 +278,7 @@ func (s *ObjectService) DeleteObject(ctx context.Context, bucket, key string, op
 
 	// Update telemetry metrics
 	telemetry.DecBucketObjects(bucket)
+	telemetry.DecTotalObjects()
 	telemetry.IncOperation("DeleteObject")
 	telemetry.OperationsTotal.WithLabelValues("DeleteObject", "success").Inc()
 	telemetry.OperationDuration.WithLabelValues("DeleteObject", "success").Observe(0) // Quick operation

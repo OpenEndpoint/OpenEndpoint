@@ -189,6 +189,34 @@ func SetStorageBuckets(count int64) {
 	metricsMutex.Unlock()
 }
 
+// SetStorageObjectsTotal sets the total number of objects
+func SetStorageObjectsTotal(count int64) {
+	metricsMutex.Lock()
+	dashboardObjectsTotal = float64(count)
+	metricsMutex.Unlock()
+}
+
+// SetStorageBytes sets the total stored bytes
+func SetStorageBytes(bytes int64) {
+	metricsMutex.Lock()
+	dashboardStorageBytes = float64(bytes)
+	metricsMutex.Unlock()
+}
+
+// IncTotalObjects increments total object count
+func IncTotalObjects() {
+	metricsMutex.Lock()
+	dashboardObjectsTotal++
+	metricsMutex.Unlock()
+}
+
+// DecTotalObjects decrements total object count
+func DecTotalObjects() {
+	metricsMutex.Lock()
+	dashboardObjectsTotal--
+	metricsMutex.Unlock()
+}
+
 // SetStorageDiskUsage sets the disk usage percentage
 func SetStorageDiskUsage(percent float64) {
 	StorageDiskUsagePercent.Set(percent)

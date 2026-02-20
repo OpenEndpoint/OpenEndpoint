@@ -45,13 +45,13 @@ func NewRouter(engine *engine.ObjectService, logger *zap.SugaredLogger, config i
 
 // ServeHTTP handles management API requests
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Strip /_mgmt/ prefix
+	// Strip /_mgmt prefix
 	path := req.URL.Path
-	if len(path) > 6 && path[:6] == "/_mgmt" {
-		path = path[6:]
-	}
-	if path == "" {
-		path = "/"
+	if strings.HasPrefix(path, "/_mgmt") {
+		path = strings.TrimPrefix(path, "/_mgmt")
+		if path == "" {
+			path = "/"
+		}
 	}
 
 	// Route request
@@ -72,9 +72,6 @@ func (r *Router) route(w http.ResponseWriter, req *http.Request, path string) {
 		r.handleCreateBucket(w, req)
 	case req.Method == http.MethodDelete && len(path) > 9 && path[:9] == "/buckets/":
 		r.handleDeleteBucket(w, req, path[9:])
-	case req.Method == http.MethodGet && len(path) > 9 && path[:9] == "/buckets/":
-		bucket := path[9:]
-		r.handleGetBucket(w, req, bucket)
 	case req.Method == http.MethodGet && path == "/metrics":
 		r.handleMetrics(w, req)
 	case req.Method == http.MethodGet && path == "/metrics/json":
