@@ -48,11 +48,11 @@ func NewCache(maxSize int, ttl time.Duration) *Cache {
 
 // Get retrieves an item from the cache
 func (c *Cache) Get(key string) (interface{}, bool) {
-	c.mu.RLock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	element, ok := c.items[key]
 	if !ok {
-		c.mu.RUnlock()
 		c.stats.mu.Lock()
 		c.stats.Misses++
 		c.stats.mu.Unlock()
@@ -65,7 +65,6 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 	if time.Now().After(item.Expiration) {
 		// Don't remove expired items during read - just return not found
 		// The cleanup goroutine will remove expired items
-		c.mu.RUnlock()
 		c.stats.mu.Lock()
 		c.stats.Misses++
 		c.stats.mu.Unlock()
@@ -74,8 +73,6 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 
 	// Move to front (most recently used)
 	c.lru.MoveToFront(element)
-
-	c.mu.RUnlock()
 
 	c.stats.mu.Lock()
 	c.stats.Hits++
