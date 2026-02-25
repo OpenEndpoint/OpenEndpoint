@@ -296,7 +296,9 @@ jobs:
           echo "| URL | https://api.openendpoint.io |" >> $GITHUB_STEP_SUMMARY
 
       - name: Discord Notification
-        if: always() && secrets.DISCORD_WEBHOOK_URL != ''
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
         uses: Ilshidur/action-discord@master
         with:
           args: |
@@ -305,8 +307,6 @@ jobs:
             Version: ${{ needs.validate.outputs.version }}
             Status: ${{ job.status }}
             URL: https://api.openendpoint.io
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
   # ============================================
   # Docker Compose Deployment

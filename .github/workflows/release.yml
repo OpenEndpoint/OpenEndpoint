@@ -317,11 +317,13 @@ $OTHER
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        if: secrets.DOCKERHUB_USERNAME != ''
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
       - name: Extract metadata
         id: meta
@@ -329,7 +331,6 @@ $OTHER
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-            ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/openendpoint', secrets.DOCKERHUB_USERNAME) || '' }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.metadata.outputs.raw_version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.metadata.outputs.raw_version }}
@@ -442,7 +443,9 @@ $OTHER
           ls -la
 
       - name: Sign checksums with GPG
-        if: secrets.GPG_PRIVATE_KEY != ''
+        if: ${{ env.GPG_PRIVATE_KEY != '' }}
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
           echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
 
@@ -475,12 +478,15 @@ $OTHER
     name: Update Homebrew Formula
     runs-on: ubuntu-latest
     needs: [metadata, release]
-    if: needs.metadata.outputs.is_prerelease == 'false' && secrets.HOMEBREW_TAP_TOKEN != ''
+    if: needs.metadata.outputs.is_prerelease == 'false'
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - name: Update Homebrew formula
+        if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
         uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          token: ${{ env.HOMEBREW_TAP_TOKEN }}
           repository: openendpoint/homebrew-tap
           event-type: update-formula
           client-payload: |
@@ -515,7 +521,10 @@ $OTHER
           echo "**Release URL**: https://github.com/${{ github.repository }}/releases/tag/${{ needs.metadata.outputs.version }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Discord Notification
-        if: secrets.DISCORD_WEBHOOK_URL != '' && needs.release.result == 'success'
+        if: ${{ env.DISCORD_WEBHOOK_URL != '' && needs.release.result == 'success' }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
         uses: Ilshidur/action-discord@master
         with:
           args: |
@@ -527,5 +536,3 @@ $OTHER
             🐳 Docker: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.metadata.outputs.version }}`
 
             ${{ needs.metadata.outputs.changelog }}
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
