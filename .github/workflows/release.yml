@@ -19,7 +19,6 @@ on:
 env:
   GO_VERSION: '1.22'
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 permissions:
   contents: write
@@ -29,7 +28,7 @@ permissions:
 
 jobs:
   # ============================================
-  # Version & Metadata
+  # Prepare Release Metadata
   # ============================================
   metadata:
     name: Prepare Metadata
@@ -37,9 +36,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       raw_version: ${{ steps.version.outputs.raw_version }}
-      release_name: ${{ steps.version.outputs.release_name }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
-      changelog: ${{ steps.changelog.outputs.changelog }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -55,7 +52,6 @@ jobs:
             IS_PRERELEASE="${{ github.event.inputs.prerelease }}"
           else
             VERSION="${GITHUB_REF#refs/tags/}"
-            # Check if pre-release based on tag
             if [[ "$VERSION" =~ -(alpha|beta|rc|pre) ]]; then
               IS_PRERELEASE="true"
             else
@@ -64,138 +60,21 @@ jobs:
           fi
 
           RAW_VERSION="${VERSION#v}"
-          RELEASE_NAME="OpenEndpoint $VERSION"
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "raw_version=$RAW_VERSION" >> $GITHUB_OUTPUT
-          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
 
           echo "Version: $VERSION"
           echo "Raw Version: $RAW_VERSION"
-          echo "Release Name: $RELEASE_NAME"
           echo "Is Prerelease: $IS_PRERELEASE"
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Get the previous tag
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
-
-          if [ -z "$PREVIOUS_TAG" ]; then
-            # First release - get all commits
-            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges)
-          else
-            # Get commits since last tag
-            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges $PREVIOUS_TAG..HEAD)
-          fi
-
-          # Categorize commits
-          FEATURES=$(echo "$COMMITS" | grep -E "^[[:space:]]*- (feat|feature|add)" || true)
-          FIXES=$(echo "$COMMITS" | grep -E "^[[:space:]]*- (fix|bugfix|hotfix)" || true)
-          DOCS=$(echo "$COMMITS" | grep -E "^[[:space:]]*- (docs|doc)" || true)
-          PERF=$(echo "$COMMITS" | grep -E "^[[:space:]]*- (perf|performance|optimize)" || true)
-          REFACTOR=$(echo "$COMMITS" | grep -E "^[[:space:]]*- (refactor|cleanup)" || true)
-          TEST=$(echo "$COMMITS" | grep -E "^[[:space:]]*- (test|tests)" || true)
-          CHORE=$(echo "$COMMITS" | grep -E "^[[:space:]]*- (chore|ci|build|deps)" || true)
-          OTHER=$(echo "$COMMITS" | grep -v -E "^[[:space:]]*- (feat|feature|add|fix|bugfix|hotfix|docs|doc|perf|performance|optimize|refactor|cleanup|test|tests|chore|ci|build|deps)" || true)
-
-          # Build changelog
-          CHANGELOG="## What's New in $VERSION
-
-          "
-
-          if [ -n "$FEATURES" ]; then
-            CHANGELOG+="### ✨ Features
-$FEATURES
-
-"
-          fi
-
-          if [ -n "$FIXES" ]; then
-            CHANGELOG+="### 🐛 Bug Fixes
-$FIXES
-
-"
-          fi
-
-          if [ -n "$PERF" ]; then
-            CHANGELOG+="### ⚡ Performance
-$PERF
-
-"
-          fi
-
-          if [ -n "$REFACTOR" ]; then
-            CHANGELOG+="### 🔧 Refactoring
-$REFACTOR
-
-"
-          fi
-
-          if [ -n "$DOCS" ]; then
-            CHANGELOG+="### 📚 Documentation
-$DOCS
-
-"
-          fi
-
-          if [ -n "$TEST" ]; then
-            CHANGELOG+="### 🧪 Tests
-$TEST
-
-"
-          fi
-
-          if [ -n "$CHORE" ]; then
-            CHANGELOG+="### 🏗️ Build & CI
-$CHORE
-
-"
-          fi
-
-          if [ -n "$OTHER" ]; then
-            CHANGELOG+="### 📝 Other Changes
-$OTHER
-
-"
-          fi
-
-          CHANGELOG+="### 📦 Assets
-- Binaries for Linux, macOS, and Windows
-- Docker images for amd64 and arm64
-- SBOM (Software Bill of Materials)
-- Checksums for all assets
-
----
-
-**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG:-$VERSION}...$VERSION"
-
-          # Write to file for debugging
-          echo "$CHANGELOG" > RELEASE_NOTES.md
-
-          # Output for GitHub Actions (escape newlines)
-          CHANGELOG_ESCAPED="${CHANGELOG//'%'/'%25'}"
-          CHANGELOG_ESCAPED="${CHANGELOG_ESCAPED//$'\n'/'%0A'}"
-          CHANGELOG_ESCAPED="${CHANGELOG_ESCAPED//$'\r'/'%0D'}"
-
-          echo "changelog=$CHANGELOG_ESCAPED" >> $GITHUB_OUTPUT
-
-      - name: Upload release notes artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-notes
-          path: RELEASE_NOTES.md
-          retention-days: 1
-
   # ============================================
-  # Build Binaries
+  # Build Binaries for All Platforms
   # ============================================
   build-binaries:
-    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    name: Build Binaries
+    runs-on: ubuntu-latest
     needs: [metadata]
     strategy:
       fail-fast: false
@@ -203,25 +82,14 @@ $OTHER
         include:
           - platform: linux
             arch: amd64
-            runner: ubuntu-latest
-            ext: ''
           - platform: linux
             arch: arm64
-            runner: ubuntu-latest
-            ext: ''
           - platform: darwin
             arch: amd64
-            runner: macos-latest
-            ext: ''
           - platform: darwin
             arch: arm64
-            runner: macos-latest
-            ext: ''
           - platform: windows
             arch: amd64
-            runner: windows-latest
-            ext: '.exe'
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -230,73 +98,49 @@ $OTHER
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
 
       - name: Build binary
         env:
           GOOS: ${{ matrix.platform }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
-          VERSION: ${{ needs.metadata.outputs.version }}
-          BUILD_TIME: ${{ github.event.head_commit.timestamp }}
         run: |
-          mkdir -p dist
+          VERSION="${{ needs.metadata.outputs.version }}"
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Build flags
-          LDFLAGS="-s -w \
-            -X main.version=${VERSION} \
-            -X main.buildTime=${BUILD_TIME} \
-            -X main.gitCommit=${GITHUB_SHA::8} \
-            -X main.platform=${{ matrix.platform }}/${{ matrix.arch }}"
-
-          OUTPUT="dist/openep-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.ext }}"
-
-          go build -ldflags "$LDFLAGS" -o "$OUTPUT" ./cmd/openep
-
-          echo "Built: $OUTPUT"
-          ls -la "$OUTPUT" || dir "dist\"
-
-      - name: Create archive (Unix)
-        if: matrix.platform != 'windows'
-        run: |
-          cd dist
-          ARCHIVE="openep-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
-          tar -czf "$ARCHIVE" "openep-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.ext }}"
-          echo "Created: $ARCHIVE"
-          ls -la "$ARCHIVE"
-
-      - name: Create archive (Windows)
-        if: matrix.platform == 'windows'
-        run: |
-          cd dist
-          $ARCHIVE = "openep-${{ needs.metadata.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}.zip"
-          Compress-Archive -Path "openep-${{ matrix.platform }}-${{ matrix.arch }}.exe" -DestinationPath $ARCHIVE
-          Write-Host "Created: $ARCHIVE"
-          Get-ChildItem $ARCHIVE
-
-      - name: Generate checksum
-        shell: bash
-        run: |
-          cd dist
-          if [[ "${{ matrix.platform }}" == "windows" ]]; then
-            sha256sum *.zip > checksums.txt
-          else
-            sha256sum *.tar.gz > checksums.txt
+          EXT=""
+          if [ "${{ matrix.platform }}" == "windows" ]; then
+            EXT=".exe"
           fi
-          cat checksums.txt
+
+          OUTPUT="openep-${{ matrix.platform }}-${{ matrix.arch }}${EXT}"
+
+          go build -ldflags "-s -w -X main.version=$VERSION -X main.buildTime=$BUILD_TIME -X main.gitCommit=${GITHUB_SHA::8}" \
+            -o "$OUTPUT" ./cmd/openep
+
+          # Create archive
+          if [ "${{ matrix.platform }}" == "windows" ]; then
+            zip "openep-${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}.zip" "$OUTPUT"
+          else
+            tar -czf "openep-${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" "$OUTPUT"
+          fi
+
+          ls -la
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.platform }}-${{ matrix.arch }}
-          path: dist/*
+          path: |
+            openep-*.tar.gz
+            openep-*.zip
           retention-days: 1
 
   # ============================================
-  # Build & Push Docker Images
+  # Build and Push Docker Image
   # ============================================
   docker:
-    name: Docker Build & Push
+    name: Docker Build
     runs-on: ubuntu-latest
     needs: [metadata]
     steps:
@@ -309,7 +153,7 @@ $OTHER
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -320,21 +164,10 @@ $OTHER
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.metadata.outputs.raw_version }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.metadata.outputs.raw_version }}
-            type=semver,pattern={{major}},value=${{ needs.metadata.outputs.raw_version }}
+            type=raw,value=${{ needs.metadata.outputs.version }}
             type=raw,value=latest,enable=${{ needs.metadata.outputs.is_prerelease == 'false' }}
-            type=raw,value=beta,enable=${{ needs.metadata.outputs.is_prerelease == 'true' }}
-          labels: |
-            org.opencontainers.image.title=OpenEndpoint
-            org.opencontainers.image.description=S3-Compatible Object Storage
-            org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.licenses=MIT
 
       - name: Build and push
         id: build
@@ -348,55 +181,20 @@ $OTHER
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            VERSION=${{ needs.metadata.outputs.version }}
-            BUILD_TIME=${{ github.event.head_commit.timestamp }}
-            GIT_COMMIT=${{ github.sha }}
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.metadata.outputs.version }}
+          image: ${{ env.REGISTRY }}/${{ github.repository }}:${{ needs.metadata.outputs.version }}
           format: spdx-json
           output-file: sbom.spdx.json
 
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
-
-      - name: Upload SBOM artifact
+      - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom.spdx.json
           retention-days: 30
-
-  # ============================================
-  # Security Scan Release
-  # ============================================
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    needs: [docker]
-    permissions:
-      security-events: write
-    steps:
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.metadata.outputs.version }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy-results.sarif
 
   # ============================================
   # Create GitHub Release
@@ -406,124 +204,32 @@ $OTHER
     runs-on: ubuntu-latest
     needs: [metadata, build-binaries, docker]
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: 'binaries-*|sbom|release-notes'
           merge-multiple: true
 
-      - name: Organize artifacts
+      - name: Generate checksums
         run: |
-          mkdir -p release-assets
-
-          # Move all archives and checksums
-          find artifacts -name "*.tar.gz" -o -name "*.zip" -o -name "checksums.txt" -o -name "sbom.spdx.json" | while read file; do
-            cp "$file" release-assets/
-          done
-
-          # Generate combined checksums
-          cd release-assets
-          cat checksums.txt 2>/dev/null | sort -u > SHA256SUMS.txt || true
-
-          # Add SBOM checksum
-          if [ -f "sbom.spdx.json" ]; then
-            sha256sum sbom.spdx.json >> SHA256SUMS.txt
-          fi
-
-          ls -la
-
-      - name: Sign checksums with GPG
-        if: ${{ env.GPG_PRIVATE_KEY != '' }}
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
-
-          cd release-assets
-          gpg --batch --yes --detach-sign --armor -o SHA256SUMS.txt.sig SHA256SUMS.txt
-
-          ls -la
+          cd artifacts
+          sha256sum * > ../checksums.txt
+          cat ../checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          name: ${{ needs.metadata.outputs.release_name }}
-          body: ${{ needs.metadata.outputs.changelog }}
+          name: OpenEndpoint ${{ needs.metadata.outputs.version }}
           prerelease: ${{ needs.metadata.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
           files: |
-            release-assets/*.tar.gz
-            release-assets/*.zip
-            release-assets/SHA256SUMS.txt
-            release-assets/SHA256SUMS.txt.sig
-            release-assets/sbom.spdx.json
-          generate_release_notes: false
-          fail_on_unmatched_files: false
+            artifacts/*
+            checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ============================================
-  # Update Homebrew Tap
-  # ============================================
-  homebrew:
-    name: Update Homebrew Formula
-    runs-on: ubuntu-latest
-    needs: [metadata, release]
-    if: needs.metadata.outputs.is_prerelease == 'false'
-    env:
-      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-    steps:
-      - name: Update Homebrew formula
-        if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ env.HOMEBREW_TAP_TOKEN }}
-          repository: openendpoint/homebrew-tap
-          event-type: update-formula
-          client-payload: |
-            {
-              "version": "${{ needs.metadata.outputs.version }}",
-              "sha256_darwin_amd64": "${{ needs.build-binaries.outputs.sha256_darwin_amd64 }}",
-              "sha256_darwin_arm64": "${{ needs.build-binaries.outputs.sha256_darwin_arm64 }}",
-              "sha256_linux_amd64": "${{ needs.build-binaries.outputs.sha256_linux_amd64 }}",
-              "sha256_linux_arm64": "${{ needs.build-binaries.outputs.sha256_linux_arm64 }}"
-            }
-
-  # ============================================
-  # Notify
-  # ============================================
-  notify:
-    name: Notify
-    runs-on: ubuntu-latest
-    needs: [metadata, release]
-    if: always()
-    steps:
-      - name: Release Summary
+      - name: Summary
         run: |
-          echo "## 🚀 Release ${{ needs.metadata.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Asset | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Binaries | ${{ needs.build-binaries.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Docker Images | ${{ needs.docker.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| GitHub Release | ${{ needs.release.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Release URL**: https://github.com/${{ github.repository }}/releases/tag/${{ needs.metadata.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-
-      - name: Discord Notification
-        if: ${{ env.DISCORD_WEBHOOK_URL != '' && needs.release.result == 'success' }}
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        uses: Ilshidur/action-discord@master
-        with:
-          args: |
-            🚀 **OpenEndpoint ${{ needs.metadata.outputs.version }} Released!**
-
-            ${{ needs.metadata.outputs.is_prerelease == 'true' && '⚠️ This is a pre-release' || '✅ Stable release' }}
-
-            📦 Download: https://github.com/${{ github.repository }}/releases/tag/${{ needs.metadata.outputs.version }}
-            🐳 Docker: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.metadata.outputs.version }}`
-
-            ${{ needs.metadata.outputs.changelog }}
+          echo "## ✅ Release ${{ needs.metadata.outputs.version }} Created"
+          echo ""
+          echo "Docker Image: ${{ env.REGISTRY }}/${{ github.repository }}:${{ needs.metadata.outputs.version }}"
