@@ -1,0 +1,40 @@
+# OpenEndpoint QuickStart Configuration for Windows
+# This is a minimal configuration for testing and development
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# Storage configuration
+storage:
+  type: "flatfile"
+  path: "/data"
+
+# Logging
+logging:
+  level: "info"
+  format: "json"
+
+# Pre-configured buckets
+buckets:
+  - name: "photos"
+    region: "us-east-1"
+  - name: "documents"
+    region: "us-east-1"
+  - name: "backups"
+    region: "us-east-1"
+
+# Demo credentials
+credentials:
+  - access_key: "demo-access-key"
+    secret_key: "demo-secret-key"
+    buckets:
+      - "photos"
+      - "documents"
+      - "backups"
+
+# Rate limiting (optional)
+ratelimit:
+  enabled: true
+  requests_per_second: 100
+  burst: 200
